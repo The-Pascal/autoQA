@@ -56,10 +56,6 @@ class AndroidInteractionManagerImpl(private val adbPath: String) : DeviceInterac
                 .mapNotNull { parseDeviceInfo(it) }
     }
 
-    override fun wait(timeInMillis: Long) {
-        TODO("No need to implement for Android")
-    }
-
     override fun executeCommand(command: String) {
         if (command.isBlank()) throw IllegalArgumentException("Command should not be empty")
         runAdbCommand("$adbPath shell $command")

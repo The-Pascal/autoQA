@@ -1,2 +1,2 @@
 rootProject.name = "demoPlugin"
-include(":mcp-server")
+include("mcp-server")

@@ -40,6 +40,7 @@ class TestCaseRepositoryImpl(
     }
 
     val mcpServer by lazy {
+//        AndroidMCPServerImpl("hello")
     }
 
     override fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun> = channelFlow {

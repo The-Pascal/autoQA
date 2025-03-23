@@ -21,7 +21,5 @@ interface DeviceInteractionManager {
 
     fun listConnectedDevices(): List<DeviceInfo>
 
-    fun wait(timeInMillis: Long)
-
     fun executeCommand(command: String)
 }
