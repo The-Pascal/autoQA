@@ -39,6 +39,9 @@ class TestCaseRepositoryImpl(
         TestCaseInjector.getTestCaseInjector().gson
     }
 
+    val mcpServer by lazy {
+    }
+
     override fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun> = channelFlow {
         if (isTestRunning) throw Exception("Test is already running")
         isTestRunning = true

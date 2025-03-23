@@ -26,6 +26,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:${retrofitVersion}")
 
     implementation("com.google.genai:google-genai:0.1.0")
+    implementation(project(":mcp-server"))
 }
 
 tasks {
