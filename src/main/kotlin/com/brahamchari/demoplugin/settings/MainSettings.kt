@@ -1,0 +1,58 @@
+package com.brahamchari.demoplugin.settings
+
+import com.brahamchari.demoplugin.models.SettingsState
+import com.brahamchari.demoplugin.services.SettingService
+import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.project.Project
+import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.panel
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JPasswordField
+import javax.swing.JTextField
+
+class MainSettings(private val project: Project): Configurable {
+
+    private val state: SettingsState by lazy {
+        SettingService.getInstance(project).state
+    }
+
+    private val apiKeyField: JPasswordField = JPasswordField()
+    private val packageNameField: JTextField = JTextField()
+    private val panel: JPanel = panel {
+        row("Gemini Api Key") {
+            cell(apiKeyField)
+                    .resizableColumn()
+                    .align(Align.FILL)
+        }
+        row("App package name") {
+            cell(packageNameField)
+                    .resizableColumn()
+                    .align(Align.FILL)
+        }
+    }
+
+    override fun createComponent(): JComponent {
+        apiKeyField.apply {
+            text = state.apiKey
+        }
+        packageNameField.apply {
+            text = state.packageName
+        }
+        return panel
+    }
+
+    override fun isModified(): Boolean {
+        // TODO: fix this later
+        return true
+    }
+
+    override fun apply() {
+        state.apiKey = String(apiKeyField.password)
+        state.packageName = packageNameField.text
+
+        SettingService.getInstance(project).loadState(state)
+    }
+
+    override fun getDisplayName(): String = "Test case settings"
+}
