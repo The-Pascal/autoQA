@@ -10,10 +10,15 @@ import kotlinx.coroutines.*
 import kotlinx.io.asSink
 import kotlinx.io.buffered
 import kotlinx.serialization.json.*
+import java.net.ServerSocket
 
-class AndroidMCPServerImpl(private val adbPath: String) : MCPServer {
+class AndroidMCPServerImpl(
+        private val adbPath: String,
+        private val port: Int = 5000
+) : MCPServer {
 
     private lateinit var server: Server
+    private lateinit var serverSocket: ServerSocket
 
     private val coroutineScope by lazy { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
     private val androidInteractionManager by lazy { AndroidInteractionManagerImpl(adbPath) }
@@ -25,6 +30,8 @@ class AndroidMCPServerImpl(private val adbPath: String) : MCPServer {
         coroutineScope.launch {
             server = createServer()
             addAllTools()
+
+            serverSocket = ServerSocket(port)
 
             // Create a transport using standard IO for server communication
             val transport = StdioServerTransport(

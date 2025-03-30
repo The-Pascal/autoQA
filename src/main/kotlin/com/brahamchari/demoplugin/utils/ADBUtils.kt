@@ -103,7 +103,7 @@ object ADBUtils {
         return null
     }
 
-    private fun getAdbPath(): String? {
+    fun getAdbPath(): String? {
         val sdkPath = ApplicationManager.getApplication()
                 .getService(com.android.tools.idea.sdk.IdeSdks::class.java)
                 ?.androidSdkPath?.absolutePath
