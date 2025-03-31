@@ -1,6 +1,6 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.20"
+    id("org.jetbrains.kotlin.jvm") version "1.9.0"
     id("org.jetbrains.intellij") version "1.13.1"
 }
 
@@ -29,9 +29,10 @@ dependencies {
 
     implementation("io.modelcontextprotocol:kotlin-sdk:$mcpVersion") {
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+        exclude(group = "org.slf4j", module = "slf4j-api")
+        exclude(group = "org.slf4j", module = "slf4j-jul") // Exclude specific bindings too
     }
-    implementation("org.slf4j:slf4j-nop:$slf4jVersion")
-    implementation("com.anthropic:anthropic-java:$anthropicVersion")
+
 
     val retrofitVersion = "2.11.0"
     implementation("com.squareup.retrofit2:retrofit:${retrofitVersion}")

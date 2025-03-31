@@ -4,7 +4,7 @@ interface MCPServer {
 
     var isServerRunning: Boolean
 
-    fun startServer()
+    suspend fun startServer(): Boolean
 
     suspend fun stopServer()
 }

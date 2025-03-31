@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.channelFlow
 interface TestCaseRepository {
     var isTestRunning: Boolean
 
+    val androidMCPServer: MCPServer
+
     fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun>
 
     fun getAllTestCase(): List<TestCase>
@@ -41,7 +43,7 @@ class TestCaseRepositoryImpl(
         TestCaseInjector.getTestCaseInjector().gson
     }
 
-    val androidMCPServer: MCPServer by lazy {
+    override val androidMCPServer: MCPServer by lazy {
         AndroidMCPServerImpl(adbSystemPath ?: "adb")
     }
 
