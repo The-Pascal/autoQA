@@ -1,6 +1,9 @@
 package com.brahamchari.demoplugin.di
 
+import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.brahamchari.demoplugin.MyProjectService
+import com.brahamchari.demoplugin.client.AndroidMCPClient
+import com.brahamchari.demoplugin.client.MCPClient
 import com.brahamchari.demoplugin.models.SettingsState
 import com.brahamchari.demoplugin.presenter.MainTestCasePresenter
 import com.brahamchari.demoplugin.presenter.MainTestCasePresenterImpl
@@ -16,6 +19,8 @@ import com.intellij.openapi.project.Project
 interface TestCaseInjector {
 
     val gson: Gson
+
+    val androidMCPClient: MCPClient
 
     fun getGeminiClient(geminiApiKey: String): Client
 
@@ -50,8 +55,19 @@ class TestCaseInjectorImpl : TestCaseInjector {
     private var testCaseRepository: TestCaseRepository? = null
     private var geminiClient: Client? = null
 
+    private val anthropicApiKey = ""
+
+    private val anthropicClient by lazy {
+        AnthropicOkHttpClient.builder()
+            .apiKey(anthropicApiKey)
+            .build()
+    }
+
     override val gson: Gson by lazy {
         Gson()
+    }
+    override val androidMCPClient: MCPClient by lazy {
+        AndroidMCPClient(anthropicClient = anthropicClient)
     }
 
     override fun getGeminiClient(geminiApiKey: String) =

@@ -339,6 +339,8 @@ class AndroidMCPServerImpl(
         ) { _: CallToolRequest ->
             val devices = androidInteractionManager.listConnectedDevices()
 
+            println("list connected device - $devices")
+
             CallToolResult(content = listOf(TextContent(devices.joinToString("\n"))))
         }
 

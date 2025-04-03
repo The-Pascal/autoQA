@@ -1,0 +1,86 @@
+package com.brahamchari.demoplugin.services
+
+import com.anthropic.client.AnthropicClient
+import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.project.Project
+import com.intellij.credentialStore.Credentials // For securely storing API key
+import com.intellij.credentialStore.CredentialAttributes
+import com.intellij.credentialStore.generateServiceName // Helper
+import com.intellij.ide.passwordSafe.PasswordSafe
+import com.intellij.ide.passwordSafe.PasswordSafeException
+import kotlinx.coroutines.CoroutineScope
+
+// Define attributes for storing the credential securely
+private val ANTHROPIC_CREDENTIAL_ATTRIBUTES = CredentialAttributes(
+    // Use generateServiceName to create a unique key based on your plugin/service name
+    generateServiceName("MyMCPPluginAnthropicService", "AnthropicApiKey")
+)
+
+@Service(Service.Level.PROJECT) // Or Service.Level.PROJECT if API key/config is project-specific
+class AnthropicService(
+    private val project: Project,
+    private val scope: CoroutineScope
+) {
+
+    init {
+        println("AnthropicService instance created for project: ${project.name}")
+    }
+
+    // Lazy initialization: Create the client only when first needed
+    val anthropicClient: AnthropicClient by lazy {
+        createClient()
+    }
+
+    private fun createClient(): AnthropicClient {
+        println("AnthropicService: Creating AnthropicClient instance...")
+        val apiKey: String? = try {
+            // --- Use the correct PasswordSafe API ---
+            PasswordSafe.instance.getPassword(ANTHROPIC_CREDENTIAL_ATTRIBUTES)
+        } catch (e: PasswordSafeException) {
+            // Handle exceptions during retrieval (though less common than null result)
+            System.err.println("AnthropicService [${project.name}] ERROR: Failed to retrieve credentials securely: ${e.message}")
+            throw e
+        }
+
+        println("Anthropic Api key - $apiKey")
+
+
+        if (apiKey.isNullOrBlank()) {
+            System.err.println("AnthropicService [${project.name}] ERROR: Anthropic API Key not found or configured for this project.")
+            // Optionally show notification only once? Might be annoying.
+            // Consider a status indicator in your plugin's UI instead.
+            throw IllegalStateException("Key not present")
+        }
+        println("AnthropicService [${project.name}]: Found API Key, initializing client.")
+
+        // --- Create the actual client ---
+        return try {
+            // Replace with the actual constructor or factory method
+            AnthropicOkHttpClient.builder().apiKey(apiKey).build()
+        } catch (e: Exception) {
+            System.err.println("AnthropicService [${project.name}] ERROR: Failed to initialize AnthropicClient with retrieved key: ${e.message}")
+            throw e // Return null if client creation fails
+        }
+    }
+
+    // Optional: Add methods to configure/set the API key if needed
+    fun setApiKey(apiKey: String) {
+        val credentials = Credentials("Anthropic API Key for ${project.name}", apiKey) // Username can include project hint
+        try {
+            // --- Use the correct PasswordSafe API ---
+            PasswordSafe.instance.set(ANTHROPIC_CREDENTIAL_ATTRIBUTES, credentials)
+            println("AnthropicService [${project.name}]: API Key stored securely.")
+            // TODO: If 'anthropicClient' is already initialized, you might need a mechanism
+            // to signal that it should be recreated with the new key upon next access.
+            // Simplest is often just letting the lazy delegate run again next time.
+        } catch (e: PasswordSafeException) {
+            System.err.println("AnthropicService [${project.name}] ERROR: Failed to store credentials securely: ${e.message}")
+            // TODO: Show error to user?
+        }
+    }
+
+    companion object {
+        fun getInstance(project: Project): AnthropicService = project.getService(AnthropicService::class.java)
+    }
+}

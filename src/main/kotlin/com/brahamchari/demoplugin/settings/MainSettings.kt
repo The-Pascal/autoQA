@@ -1,6 +1,7 @@
 package com.brahamchari.demoplugin.settings
 
 import com.brahamchari.demoplugin.models.SettingsState
+import com.brahamchari.demoplugin.services.AnthropicService
 import com.brahamchari.demoplugin.services.SettingService
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
@@ -17,13 +18,24 @@ class MainSettings(private val project: Project): Configurable {
         SettingService.getInstance(project).state
     }
 
-    private val apiKeyField: JPasswordField = JPasswordField()
+    private val anthropicService: AnthropicService by lazy {
+        AnthropicService.getInstance(project)
+    }
+
+    private val geminiApiKey: JPasswordField = JPasswordField()
+    private val anthropicApiKey: JPasswordField = JPasswordField()
     private val packageNameField: JTextField = JTextField()
     private val panel: JPanel = panel {
         row("Gemini Api Key") {
-            cell(apiKeyField)
+            cell(geminiApiKey)
                     .resizableColumn()
                     .align(Align.FILL)
+        }
+        row("Anthropic API Key:") {
+            cell(anthropicApiKey)
+                .resizableColumn()
+                .align(Align.FILL)
+                .comment("API Key is stored securely per project.")
         }
         row("App package name") {
             cell(packageNameField)
@@ -33,7 +45,7 @@ class MainSettings(private val project: Project): Configurable {
     }
 
     override fun createComponent(): JComponent {
-        apiKeyField.apply {
+        geminiApiKey.apply {
             text = state.apiKey
         }
         packageNameField.apply {
@@ -48,7 +60,7 @@ class MainSettings(private val project: Project): Configurable {
     }
 
     override fun apply() {
-        state.apiKey = String(apiKeyField.password)
+        state.apiKey = String(geminiApiKey.password)
         state.packageName = packageNameField.text
 
         SettingService.getInstance(project).loadState(state)

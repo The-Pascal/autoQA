@@ -42,6 +42,8 @@ dependencies {
     implementation(project(":mcp-server")) {
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
     }
+
+    implementation("com.anthropic:anthropic-java:1.0.0")
 }
 
 tasks {
