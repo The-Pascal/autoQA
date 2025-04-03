@@ -7,6 +7,7 @@ import com.brahamchari.demoplugin.repository.MainTestCaseView
 import com.brahamchari.demoplugin.repository.TestCaseRepository
 import com.intellij.openapi.application.EDT
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
@@ -37,25 +38,29 @@ class MainTestCasePresenterImpl(
     }
 
     override fun runTestCase(testCase: TestCase) {
-        view.updateTestStatus(TestRunningStatus.RUNNING)
-
-        if(selectedDeviceId == null) {
-            println("No adb device selected")
-            // TODO: add notification here
-            return
-        }
-
         myProjectService.launchOnScope(Dispatchers.IO) {
-            testCaseRepository.runTestCase(testCase, selectedDeviceId!!).collectLatest { testCaseRun ->
-                withContext(Dispatchers.EDT) {
-                    view.appendTestStep(testCaseRun.aiResponses)
-
-                    if(testCaseRun.runningStatus == TestRunningStatus.STOPPED) {
-                        view.updateTestStatus(TestRunningStatus.STOPPED)
-                    }
-                }
-            }
+            val result = testCaseRepository.androidMCPServer.startServer()
+            println("Server started result - $result")
         }
+//        view.updateTestStatus(TestRunningStatus.RUNNING)
+//
+//        if(selectedDeviceId == null) {
+//            println("No adb device selected")
+//            // TODO: add notification here
+//            return
+//        }
+//
+//        myProjectService.launchOnScope(Dispatchers.IO) {
+//            testCaseRepository.runTestCase(testCase, selectedDeviceId!!).collectLatest { testCaseRun ->
+//                withContext(Dispatchers.EDT) {
+//                    view.appendTestStep(testCaseRun.aiResponses)
+//
+//                    if(testCaseRun.runningStatus == TestRunningStatus.STOPPED) {
+//                        view.updateTestStatus(TestRunningStatus.STOPPED)
+//                    }
+//                }
+//            }
+//        }
     }
 
     override fun stopRunningTest() {

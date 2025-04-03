@@ -21,11 +21,27 @@ intellij {
 }
 
 dependencies {
+    val mcpVersion = "0.4.0"
+    val slf4jVersion = "2.0.9"
+    val anthropicVersion = "0.8.0"
+
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
+
+    implementation("io.modelcontextprotocol:kotlin-sdk:$mcpVersion") {
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+        exclude(group = "org.slf4j", module = "slf4j-api")
+        exclude(group = "org.slf4j", module = "slf4j-jul") // Exclude specific bindings too
+    }
+
+
     val retrofitVersion = "2.11.0"
     implementation("com.squareup.retrofit2:retrofit:${retrofitVersion}")
     implementation("com.squareup.retrofit2:converter-gson:${retrofitVersion}")
 
     implementation("com.google.genai:google-genai:0.1.0")
+    implementation(project(":mcp-server")) {
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+    }
 }
 
 tasks {
@@ -34,11 +50,11 @@ tasks {
     }
     // Set the JVM compatibility versions
     withType<JavaCompile> {
-        sourceCompatibility = "11"
-        targetCompatibility = "11"
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
     }
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "11"
+        kotlinOptions.jvmTarget = "17"
     }
 
     patchPluginXml {

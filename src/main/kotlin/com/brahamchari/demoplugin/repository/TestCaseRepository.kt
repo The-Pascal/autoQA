@@ -1,5 +1,7 @@
 package com.brahamchari.demoplugin.repository
 
+import com.brahamchari.MCPServer
+import com.brahamchari.android.AndroidMCPServerImpl
 import com.brahamchari.demoplugin.MyProjectService
 import com.brahamchari.demoplugin.di.TestCaseInjector
 import com.brahamchari.demoplugin.models.*
@@ -15,6 +17,8 @@ import kotlinx.coroutines.flow.channelFlow
 
 interface TestCaseRepository {
     var isTestRunning: Boolean
+
+    val androidMCPServer: MCPServer
 
     fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun>
 
@@ -39,7 +43,16 @@ class TestCaseRepositoryImpl(
         TestCaseInjector.getTestCaseInjector().gson
     }
 
+    override val androidMCPServer: MCPServer by lazy {
+        AndroidMCPServerImpl(adbSystemPath ?: "adb")
+    }
+
+    val adbSystemPath: String? by lazy {
+        ADBUtils.getAdbPath()
+    }
+
     override fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun> = channelFlow {
+        androidMCPServer.startServer()
         if (isTestRunning) throw Exception("Test is already running")
         isTestRunning = true
         println("Run Test case started")
