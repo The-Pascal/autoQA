@@ -7,7 +7,7 @@ import kotlin.jvm.Throws
 
 object ADBUtils {
 
-    private val screenshotSaveFolderPath: String by lazy {
+    val screenshotSaveFolderPath: String by lazy {
         val configDir = File(System.getProperty("user.home"), ".config/Google/AndroidStudio/plugins/testAi/")
         if (!configDir.exists()) configDir.mkdirs()
         println("Screenshot save folder path - ${configDir.absolutePath}")

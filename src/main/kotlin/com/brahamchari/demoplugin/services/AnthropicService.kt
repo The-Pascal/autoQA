@@ -64,7 +64,6 @@ class AnthropicService(
         }
     }
 
-    // Optional: Add methods to configure/set the API key if needed
     fun setApiKey(apiKey: String) {
         val credentials = Credentials("Anthropic API Key for ${project.name}", apiKey) // Username can include project hint
         try {
@@ -77,6 +76,26 @@ class AnthropicService(
         } catch (e: PasswordSafeException) {
             System.err.println("AnthropicService [${project.name}] ERROR: Failed to store credentials securely: ${e.message}")
             // TODO: Show error to user?
+        }
+    }
+
+    /**
+     * Retrieves the stored API key securely and returns a mask
+     * (asterisks matching the key length) or an empty string if no key is stored.
+     */
+    // TODO: Move this to IO thread
+    fun getApiKeyMask(): String {
+        val storedApiKey: String? = try {
+            PasswordSafe.instance.getPassword(ANTHROPIC_CREDENTIAL_ATTRIBUTES)
+        } catch (e: PasswordSafeException) {
+            println("Error reading stored API key for masking: ${e.message}")
+            null // Treat error as no key stored
+        }
+        // IMPORTANT: Do NOT log the storedApiKey variable itself here!
+        return if (storedApiKey != null) {
+            "*".repeat(storedApiKey.length)
+        } else {
+            "" // No key stored, show empty field
         }
     }
 
