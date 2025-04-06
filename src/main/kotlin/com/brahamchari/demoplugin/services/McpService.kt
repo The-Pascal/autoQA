@@ -4,10 +4,13 @@ import com.brahamchari.MCPServer
 import com.brahamchari.android.AndroidMCPServerImpl
 import com.brahamchari.demoplugin.client.AndroidMCPClient
 import com.brahamchari.demoplugin.client.MCPClient
+import com.brahamchari.demoplugin.utils.ADBUtils
+import com.brahamchari.demoplugin.utils.Utils
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
 @Service(Service.Level.PROJECT)
@@ -24,7 +27,9 @@ class McpService(
     // --- Configuration ---
     private val serverPort: Int = 5000 // Match server port
     private val serverHost: String = "127.0.0.1" // Connect specifically to loopback
-    private val adbPath: String = "/path/to/your/adb" // TODO: Load from settings
+    private val adbPath: String by lazy {
+        ADBUtils.getAdbPath() ?: "adb"
+    }
 
     // --- Get Dependencies Lazily ---
     // Get the project-specific AnthropicService lazily
@@ -49,85 +54,122 @@ class McpService(
             parentScope = this // Pass this service's scope
         )
     }
-    val mcpClient by _mcpClient
+    val mcpClient: MCPClient by _mcpClient
 
-    private var startupJob: Job? = null
+    @Volatile
+    var isServiceRunning = false
+        private set
+    private val isStartingOrStopping = AtomicBoolean(false)
 
     init {
         println("McpService: Initializing with WebSocket...")
     }
 
-    fun initializeAndStart() {
-        if (startupJob?.isActive == true) {
-            println("McpService: Startup already in progress.")
-            return
+    suspend fun initializeAndStart(): Boolean {
+        if (isServiceRunning) {
+            println("McpService [${project.name}]: Already running.")
+            return true
         }
-        startupJob = launch { // Use the service's scope
-            println("McpService: Attempting to start server...")
-            try {
-                val serverStarted = mcpServer.startServer() // Start the server
+        if (!isStartingOrStopping.compareAndSet(false, true)) {
+            println("McpService [${project.name}]: Startup or shutdown already in progress.")
+            return false
+        }
 
-                if (serverStarted) {
-                    println("McpService: Server start initiated. Connecting client...")
-                    delay(500) // Brief delay for server to be fully ready (can be improved)
-                    try {
-                         mcpClient.connect() // Connect the client
-                         // Check mcpClient.isConnected after a short delay or via callbacks if possible
-                         delay(500) // Give client time to attempt connection
-                         if (mcpClient.isConnected) {
-                              println("McpService: Client connect initiated (assumed connected).")
-                         } else {
-                              System.err.println("McpService: Client failed to connect after server start.")
-                              // Optionally stop server if client connection fails
-                              // mcpServer.stopServer()
-                         }
-                    } catch (clientEx: Exception) {
-                         System.err.println("McpService: Client connection attempt failed: ${clientEx.message}")
-                         // Optionally stop server
-                         // mcpServer.stopServer()
-                    }
-                } else {
-                    System.err.println("McpService: Server failed to start.")
+        println("McpService [${project.name}]: Attempting to start server and client...")
+        var success = false
+
+        try {
+            withContext(Dispatchers.IO) {
+                val server = mcpServer // Trigger lazy init
+                val client = mcpClient // Trigger lazy init
+
+                println("McpService [${project.name}]: Starting server...")
+                val serverStarted = server.startServer()
+                if (!serverStarted) {
+                    throw Exception("MCP server failed to start.")
                 }
-            } catch (e: Exception) {
-                 System.err.println("McpService: Error during startup coroutine: ${e.message}")
-                 e.printStackTrace()
-                 // Ensure cleanup happens even if startServer throws
-                 withContext(NonCancellable) { stopServerAndClient() }
-            } finally {
-                 println("McpService: Startup job finished.")
+                println("McpService [${project.name}]: Server start successful.")
+
+                println("McpService [${project.name}]: Connecting client...")
+                try {
+                    client.connect()
+                    delay(500) // Minimal delay only if SDK requires it for isConnected check
+                    if (!client.isConnected) {
+                        throw Exception("MCP client failed to connect.")
+                    }
+                    println("McpService [${project.name}]: Client connect successful.")
+                } catch (clientEx: Exception) {
+                    throw Exception("MCP client connection failed: ${clientEx.message}", clientEx)
+                }
+
+                println("McpService [${project.name}]: Server and Client started successfully.")
+                isServiceRunning = true
+                success = true
+            } // End withContext
+
+            return true // Startup successful
+
+        } catch (e: CancellationException) {
+            System.err.println("McpService [${project.name}]: Startup cancelled.")
+            // Let cancellation propagate, but ensure cleanup runs
+            throw e // Re-throw cancellation
+        } catch (e: Exception) {
+            System.err.println("McpService [${project.name}]: Unexpected error during startup: ${e.message}")
+            e.printStackTrace()
+        } finally {
+            if (!success) {
+                System.err.println("McpService [${project.name}]: Startup sequence failed or cancelled, ensuring cleanup...")
+                withContext(NonCancellable) {
+                    stopServerAndClientInternal() // Call internal version
+                }
             }
+            // Release the lock ONLY after all operations (including potential cleanup) are done
+            isStartingOrStopping.set(false)
+            println("McpService [${project.name}]: Startup attempt finished (Success: $success).")
         }
+        return false // Return false if any non-cancellation exception occurred
     }
 
     suspend fun stopServerAndClient() {
-        println("McpService [${project.name}]: Shutting down server and client...")
-        startupJob?.cancelAndJoin()
-        startupJob = null
+        if (!isServiceRunning && !isStartingOrStopping.get()) {
+            println("McpService [${project.name}]: Not running or already stopping.")
+            return
+        }
+        if (!isStartingOrStopping.compareAndSet(false, true)) {
+            println("McpService [${project.name}]: Startup or shutdown already in progress.")
+            return
+        }
+        stopServerAndClientInternal()
+    }
 
-        // Check if lazy instances were initialized before trying to stop/shutdown
+    // Internal function for actual stopping logic
+    private suspend fun stopServerAndClientInternal() {
+        println("McpService [${project.name}]: Internal shutdown logic running...")
+        isServiceRunning = false
+
         if (_mcpClient.isInitialized()) {
-            try { mcpClient.disconnect() } catch (e: Exception) { /* Log */ }
+            try { mcpClient.disconnect() } catch (e: Exception) { System.err.println("Error disconnecting client: ${e.message}") }
         }
         if (_mcpServer.isInitialized()) {
-            try { mcpServer.stopServer() } catch (e: Exception) { /* Log */ }
+            try { mcpServer.stopServer() } catch (e: Exception) { System.err.println("Error stopping server: ${e.message}") }
         }
         if (_mcpClient.isInitialized()) {
-            try { mcpClient.shutdown() } catch (e: Exception) { /* Log */ }
+            try { mcpClient.shutdown() } catch (e: Exception) { System.err.println("Error shutting down client: ${e.message}") }
         }
-        println("McpService [${project.name}]: Shutdown sequence complete.")
+        println("McpService [${project.name}]: Internal shutdown sequence complete.")
+        isStartingOrStopping.set(false) // Release lock
     }
 
     override fun dispose() {
         println("McpService [${project.name}]: Disposing service...")
-        // Use runBlocking or GlobalScope for cleanup if suspend funcs must be called from dispose
-        // But prefer cancelling the scope and letting coroutines handle cleanup gracefully.
+        if (isStartingOrStopping.get()) {
+            println("McpService [${project.name}]: Warning: Disposing while startup/shutdown might be in progress.")
+        }
         if (serviceJob.isActive) {
             serviceJob.cancel(CancellationException("McpService for project ${project.name} is being disposed."))
             println("McpService [${project.name}]: Coroutine scope cancelled.")
         }
-        // TODO: Explicit cleanup if needed beyond coroutine cancellation
-        // runBlocking { stopServerAndClientInternal() } // Can cause delays if network ops hang
+        // runBlocking { stopServerAndClientInternal() } // Use with caution
     }
 
 

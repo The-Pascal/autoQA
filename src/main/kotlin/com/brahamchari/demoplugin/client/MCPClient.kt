@@ -8,6 +8,7 @@ import com.anthropic.models.messages.Model
 import com.anthropic.models.messages.ToolUnion
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.google.gson.Gson
 import io.ktor.client.*
 import io.ktor.client.engine.cio.* // Or another engine like OkHttp
 import io.ktor.client.plugins.*
@@ -20,6 +21,7 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.JsonObject
 import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.optionals.getOrNull
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 // Interface defining the client operations (optional but good practice)
@@ -55,7 +57,7 @@ class AndroidMCPClient(
     private val httpClient = HttpClient(CIO) { // Or OkHttp if preferred/available
         install(WebSockets) {
             // Configure WebSocket options if needed (timeouts, etc.)
-            pingInterval = 10.seconds.inWholeMilliseconds
+            pingInterval = 10.seconds
             maxFrameSize = Long.MAX_VALUE
         }
         // Install and configure Timeouts
@@ -141,7 +143,10 @@ class AndroidMCPClient(
 
                 val toolsResult = newClientLogic.listTools()
                 tools = toolsResult?.tools
+
                 anthropicTools = toolsResult?.tools?.map { tool ->
+                    val properties = tool.inputSchema.properties.toJsonValue()
+                    println("Properties for tool - $properties\n")
                     ToolUnion.ofTool(
                         com.anthropic.models.messages.Tool.builder()
                             .name(tool.name)
@@ -152,7 +157,8 @@ class AndroidMCPClient(
                                     .properties(tool.inputSchema.properties.toJsonValue())
                                     .putAdditionalProperty("required", JsonValue.from(tool.inputSchema.required))
                                     .build()
-                            ).build()
+                            )
+                            .build()
                     )
                 }
 
@@ -200,13 +206,21 @@ class AndroidMCPClient(
                 .build()
         )
 
+        println("Messages - $messages\n\n")
+
+        val messageRequest =  messageParamsBuilder
+            .messages(messages)
+            .tools(anthropicTools!!)
+            .build()
+
+        println("Message request - $messageRequest\n\n")
+
         // Send the query to the Anthropic model and get the response
         val response = anthropicClient.messages().create(
-            messageParamsBuilder
-                .messages(messages)
-                .tools(anthropicTools!!)
-                .build()
+            messageRequest
         )
+
+        println("Response - $response\n\n")
 
         val finalText = mutableListOf<String>()
         response.content().forEach { content ->
@@ -216,6 +230,7 @@ class AndroidMCPClient(
 
                 // If the response indicates a tool use, process it further
                 content.isToolUse() -> {
+                    println("isTool Use ")
                     val toolName = content.toolUse().get().name()
                     val toolArgs =
                         content.toolUse().get()._input().convert(object : TypeReference<Map<String, JsonValue>>() {})
@@ -226,6 +241,8 @@ class AndroidMCPClient(
                         arguments = toolArgs ?: emptyMap()
                     )
                     finalText.add("[Calling tool $toolName with args $toolArgs]")
+                    println("Result of $toolName with args $toolArgs result - ${result?.content}")
+                    println("Result of $toolName with args $toolArgs result - $result")
 
                     // Add the tool result message to the conversation
                     messages.add(
@@ -254,6 +271,7 @@ class AndroidMCPClient(
             }
         }
 
+        println("Final text result - ${finalText.joinToString("\n", prefix = "", postfix = "")}")
         return finalText.joinToString("\n", prefix = "", postfix = "")
     }
 

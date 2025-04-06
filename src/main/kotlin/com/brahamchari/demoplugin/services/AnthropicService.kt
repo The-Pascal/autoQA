@@ -12,7 +12,7 @@ import com.intellij.ide.passwordSafe.PasswordSafeException
 import kotlinx.coroutines.CoroutineScope
 
 // Define attributes for storing the credential securely
-private val ANTHROPIC_CREDENTIAL_ATTRIBUTES = CredentialAttributes(
+val ANTHROPIC_CREDENTIAL_ATTRIBUTES = CredentialAttributes(
     // Use generateServiceName to create a unique key based on your plugin/service name
     generateServiceName("MyMCPPluginAnthropicService", "AnthropicApiKey")
 )
@@ -43,7 +43,7 @@ class AnthropicService(
             throw e
         }
 
-        println("Anthropic Api key - $apiKey")
+        println("Anthropic Api key - ${apiKey?.length}")
 
 
         if (apiKey.isNullOrBlank()) {
@@ -52,12 +52,12 @@ class AnthropicService(
             // Consider a status indicator in your plugin's UI instead.
             throw IllegalStateException("Key not present")
         }
-        println("AnthropicService [${project.name}]: Found API Key, initializing client.")
+        println("AnthropicService [${project.name}]: Found API Key, initializing client. $apiKey")
 
         // --- Create the actual client ---
         return try {
             // Replace with the actual constructor or factory method
-            AnthropicOkHttpClient.builder().apiKey(apiKey).build()
+            AnthropicOkHttpClient.builder().apiKey("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").build()
         } catch (e: Exception) {
             System.err.println("AnthropicService [${project.name}] ERROR: Failed to initialize AnthropicClient with retrieved key: ${e.message}")
             throw e // Return null if client creation fails

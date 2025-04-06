@@ -2,6 +2,7 @@ plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.0"
     id("org.jetbrains.intellij") version "1.13.1"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "com.brahamchari"
@@ -43,7 +44,7 @@ dependencies {
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
     }
 
-    implementation("com.anthropic:anthropic-java:1.0.0")
+    implementation("com.anthropic:anthropic-java:1.1.0")
 }
 
 tasks {

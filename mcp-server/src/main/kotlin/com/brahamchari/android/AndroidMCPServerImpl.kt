@@ -1,29 +1,25 @@
 package com.brahamchari.android
 
 import com.brahamchari.MCPServer
-import com.brahamchari.transport.Transport
 import io.ktor.server.application.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
-import io.modelcontextprotocol.kotlin.sdk.*
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import kotlinx.coroutines.*
-import kotlinx.serialization.json.*
-import java.net.ServerSocket
-import java.net.Socket
-import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.plugins.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import io.modelcontextprotocol.kotlin.sdk.*
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.WebSocketMcpServerTransport
+import kotlinx.coroutines.*
+import kotlinx.serialization.json.*
 import kotlin.time.Duration.Companion.seconds
 
 class AndroidMCPServerImpl(
-        private val adbPath: String,
-        private val port: Int = 5000,
-        private val host: String = "0.0.0.0" // Listen on all local interfaces
+    private val adbPath: String,
+    private val port: Int = 5000,
+    private val host: String = "0.0.0.0" // Listen on all local interfaces
 ) : MCPServer {
 
     private lateinit var mcpServerLogic: Server
@@ -76,11 +72,21 @@ class AndroidMCPServerImpl(
                             WebSocketMcpServerTransport(this)
                         } catch (e: IllegalStateException) {
                             System.err.println("MCP Ktor Server: Client connection failed validation (e.g., subprotocol): ${e.message}")
-                            close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.PROTOCOL_ERROR, e.message ?: "Validation failed"))
+                            close(
+                                io.ktor.websocket.CloseReason(
+                                    io.ktor.websocket.CloseReason.Codes.PROTOCOL_ERROR,
+                                    e.message ?: "Validation failed"
+                                )
+                            )
                             return@webSocket
                         } catch (e: Exception) {
                             System.err.println("MCP Ktor Server: Failed to create WebSocketMcpServerTransport: ${e.message}")
-                            close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.INTERNAL_ERROR, "Server setup error"))
+                            close(
+                                io.ktor.websocket.CloseReason(
+                                    io.ktor.websocket.CloseReason.Codes.INTERNAL_ERROR,
+                                    "Server setup error"
+                                )
+                            )
                             return@webSocket
                         }
 
@@ -111,7 +117,8 @@ class AndroidMCPServerImpl(
             // Ensure cleanup on failure
             try {
                 embeddedKtorServer?.stop(100, 1000)
-            } catch (stopEx: Exception) { /* Ignore stop error during startup failure */ }
+            } catch (stopEx: Exception) { /* Ignore stop error during startup failure */
+            }
             embeddedKtorServer = null
             isServerRunning = false // Ensure state is false
             return false // Return false indicating failure
@@ -141,16 +148,16 @@ class AndroidMCPServerImpl(
 
     private fun createMCPServerLogic(): Server {
         return Server(
-                Implementation(name = "android-mcp", version = "1.0.0"),
-                ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = false)))
+            Implementation(name = "android-mcp", version = "1.0.0"),
+            ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = false)))
         )
     }
 
     private fun addAllTools() {
 
         mcpServerLogic.addTool(
-                name = "get_screen_context",
-                description = """
+            name = "get_screen_context",
+            description = """
                     Returns the current UI hierarchy dump from the screen.
                 """.trimIndent()
         ) {
@@ -160,25 +167,25 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "tap_on_screen",
-                description = """
+            name = "tap_on_screen",
+            description = """
                     Uses adb command to tap the coordinates on the screen.
                     Returns screen context after the tap action is completed.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("xCoordinate", JsonPrimitive("number"))
-                            put("yCoordinate", JsonPrimitive("number"))
-                        },
-                        required = listOf("xCoordinate", "yCoordinate")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("xCoordinate") { put("type", "number") }
+                    putJsonObject("yCoordinate") { put("type", "number") }
+                },
+                required = listOf("xCoordinate", "yCoordinate")
+            ),
         ) { request: CallToolRequest ->
             val xCoordinate = request.arguments["xCoordinate"]?.jsonPrimitive?.longOrNull
             val yCoordinate = request.arguments["yCoordinate"]?.jsonPrimitive?.longOrNull
 
-            if(xCoordinate == null || yCoordinate == null) {
+            if (xCoordinate == null || yCoordinate == null) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("xCoordinate & yCoordinate should not be null"))
+                    content = listOf(TextContent("xCoordinate & yCoordinate should not be null"))
                 )
             }
 
@@ -190,21 +197,21 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "swipe_on_screen",
-                description = """
+            name = "swipe_on_screen",
+            description = """
                     Performs a swipe gesture from start to end coordinates.
                     Returns screen context after completion.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("startX", JsonPrimitive("number"))
-                            put("startY", JsonPrimitive("number"))
-                            put("endX", JsonPrimitive("number"))
-                            put("endY", JsonPrimitive("number"))
-                            put("duration", JsonPrimitive("number"))
-                        },
-                        required = listOf("startX", "startY", "endX", "endY", "duration")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("startX") { put("type", "number") }
+                    putJsonObject("startY") { put("type", "number") }
+                    putJsonObject("endX") { put("type", "number") }
+                    putJsonObject("endY") { put("type", "number") }
+                    putJsonObject("duration") { put("type", "number") }
+                },
+                required = listOf("startX", "startY", "endX", "endY", "duration")
+            ),
         ) { request: CallToolRequest ->
             val startX = request.arguments["startX"]?.jsonPrimitive?.longOrNull
             val startY = request.arguments["startY"]?.jsonPrimitive?.longOrNull
@@ -214,7 +221,7 @@ class AndroidMCPServerImpl(
 
             if (startX == null || startY == null || endX == null || endY == null || duration == null) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("All swipe coordinates and duration must be provided"))
+                    content = listOf(TextContent("All swipe coordinates and duration must be provided"))
                 )
             }
 
@@ -226,23 +233,26 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "input_text",
-                description = """
+            name = "input_text",
+            description = """
                     Inputs text into the currently focused field.
                     Returns cleaned screen context after processing.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("input", JsonPrimitive("string"))
-                        },
-                        required = listOf("input")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("input") {
+                        put("type", "string")
+                        put("description", "Text to input in the focused field.")
+                    }
+                },
+                required = listOf("input")
+            ),
         ) { request: CallToolRequest ->
             val inputText = request.arguments["input"]?.jsonPrimitive?.contentOrNull
 
             if (inputText.isNullOrBlank()) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("Input text should not be empty"))
+                    content = listOf(TextContent("Input text should not be empty"))
                 )
             }
 
@@ -254,23 +264,23 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "launch_app",
-                description = """
+            name = "launch_app",
+            description = """
                     Launches the specified application.
                     Returns cleaned screen context after processing.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("packageName", JsonPrimitive("string"))
-                        },
-                        required = listOf("packageName")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("packageName") { put("type", "string") }
+                },
+                required = listOf("packageName")
+            ),
         ) { request: CallToolRequest ->
             val packageName = request.arguments["packageName"]?.jsonPrimitive?.contentOrNull
 
             if (packageName.isNullOrBlank()) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("Package name should not be empty"))
+                    content = listOf(TextContent("Package name should not be empty"))
                 )
             }
 
@@ -282,23 +292,23 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "close_app",
-                description = """
+            name = "close_app",
+            description = """
                     Closes the specified application.
                     Returns cleaned screen context after processing.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("packageName", JsonPrimitive("string"))
-                        },
-                        required = listOf("packageName")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("packageName") { put("type", "string") }
+                },
+                required = listOf("packageName")
+            ),
         ) { request: CallToolRequest ->
             val packageName = request.arguments["packageName"]?.jsonPrimitive?.contentOrNull
 
             if (packageName.isNullOrBlank()) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("Package name should not be empty"))
+                    content = listOf(TextContent("Package name should not be empty"))
                 )
             }
 
@@ -310,15 +320,11 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "press_back_button",
-                description = """
+            name = "press_back_button",
+            description = """
                     Presses the system back button.
                     Returns cleaned screen context after processing.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {},
-                        required = emptyList()
-                ),
         ) { _: CallToolRequest ->
             androidInteractionManager.pressBackButton()
             delay(500)
@@ -328,14 +334,10 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "list_connected_devices",
-                description = """
+            name = "list_connected_devices",
+            description = """
                     Retrieves a list of connected devices with their model names.
-                """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {},
-                        required = emptyList()
-                ),
+                """.trimIndent()
         ) { _: CallToolRequest ->
             val devices = androidInteractionManager.listConnectedDevices()
 
@@ -345,23 +347,23 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "wait",
-                description = """
+            name = "wait",
+            description = """
                     Wait for given duration and then return screen context again.
                     Returns cleaned screen context after the delay.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("timeInMillis", JsonPrimitive("number"))
-                        },
-                        required = listOf("timeInMillis")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("timeInMillis") { put("type", "number") }
+                },
+                required = listOf("timeInMillis")
+            ),
         ) { request: CallToolRequest ->
             val timeInMillis = request.arguments["timeInMillis"]?.jsonPrimitive?.longOrNull
 
             if (timeInMillis == null || timeInMillis <= 0) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("timeInMillis should be a positive number"))
+                    content = listOf(TextContent("timeInMillis should be a positive number"))
                 )
             }
 
@@ -372,23 +374,23 @@ class AndroidMCPServerImpl(
         }
 
         mcpServerLogic.addTool(
-                name = "execute_command",
-                description = """
+            name = "execute_command",
+            description = """
                     Runs a custom ADB command if other tools are insufficient.
                     Returns cleaned screen context after execution.
                 """.trimIndent(),
-                inputSchema = Tool.Input(
-                        properties = buildJsonObject {
-                            put("command", JsonPrimitive("string"))
-                        },
-                        required = listOf("command")
-                ),
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    putJsonObject("command") { put("type", "string") }
+                },
+                required = listOf("command")
+            ),
         ) { request: CallToolRequest ->
             val command = request.arguments["command"]?.jsonPrimitive?.contentOrNull
 
             if (command.isNullOrBlank()) {
                 return@addTool CallToolResult(
-                        content = listOf(TextContent("Command should not be empty"))
+                    content = listOf(TextContent("Command should not be empty"))
                 )
             }
 
@@ -398,6 +400,5 @@ class AndroidMCPServerImpl(
 
             CallToolResult(content = listOf(TextContent(screenContext)))
         }
-
     }
 }

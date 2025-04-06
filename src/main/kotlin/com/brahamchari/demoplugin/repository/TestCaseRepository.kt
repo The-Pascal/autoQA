@@ -1,8 +1,10 @@
 package com.brahamchari.demoplugin.repository
 
 import com.brahamchari.MCPServer
+import com.brahamchari.android.AndroidInteractionManagerImpl
 import com.brahamchari.android.AndroidMCPServerImpl
 import com.brahamchari.demoplugin.MyProjectService
+import com.brahamchari.demoplugin.client.MCPClient
 import com.brahamchari.demoplugin.di.TestCaseInjector
 import com.brahamchari.demoplugin.models.*
 import com.brahamchari.demoplugin.utils.ADBUtils
@@ -10,10 +12,12 @@ import com.brahamchari.demoplugin.utils.AiPrompts
 import com.brahamchari.demoplugin.utils.Utils
 import com.google.genai.Client
 import com.google.gson.Gson
+import com.intellij.openapi.project.Project
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import org.jetbrains.kotlin.idea.gradleTooling.get
 
 interface TestCaseRepository {
     var isTestRunning: Boolean
@@ -30,8 +34,9 @@ interface TestCaseRepository {
 }
 
 class TestCaseRepositoryImpl(
-        private val geminiClient: Client,
-        private val myProjectService: MyProjectService
+    private val geminiClient: Client,
+    private val myProjectService: MyProjectService,
+    private val project: Project
 ): TestCaseRepository {
 
     @Volatile
@@ -52,7 +57,16 @@ class TestCaseRepositoryImpl(
     }
 
     override fun runTestCase(testCase: TestCase, deviceId: String): Flow<TestCaseRun> = channelFlow {
-        androidMCPServer.startServer()
+        var serviceInitStatus = true
+        if(!mcpService.isServiceRunning) {
+            serviceInitStatus = mcpService.initializeAndStart()
+        }
+
+        if(!serviceInitStatus) {
+            println("Unable to initialize and start Service")
+            return@channelFlow
+        }
+
         if (isTestRunning) throw Exception("Test is already running")
         isTestRunning = true
         println("Run Test case started")
@@ -75,7 +89,8 @@ class TestCaseRepositoryImpl(
                             previousResponse.aiResponse,
                             testCase,
                             getCleanedScreenContext(screenContext),
-                            actionList
+                            actionList,
+                        mcpService.mcpClient
                     )
                     val currentResponse = AiResponseData(
                             aiResponse = aiResponse,
@@ -145,6 +160,10 @@ class TestCaseRepositoryImpl(
         currentTestJob?.cancelAndJoin()
     }
 
+    private val mcpService by lazy {
+        TestCaseInjector.getTestCaseInjector().getMCPService(project)
+    }
+
     private fun getTCRunningStatus(feedback: AiFeedback): TestRunningStatus {
         return if (feedback == AiFeedback.CONTINUE) TestRunningStatus.RUNNING
         else TestRunningStatus.STOPPED
@@ -171,7 +190,13 @@ class TestCaseRepositoryImpl(
         )
     }
 
-    private fun makeAiCall(previousResponse: AiResponse, testCase: TestCase, screenContext: String, actionList: MutableList<AiResponseData>): AiResponse {
+    private suspend fun makeAiCall(
+        previousResponse: AiResponse,
+        testCase: TestCase,
+        screenContext: String,
+        actionList: MutableList<AiResponseData>,
+        mcpClient: MCPClient
+    ): AiResponse {
         val allPreviousSteps: List<String> = actionList.map { it.aiResponse.context }
         val prompt = AiPrompts.getPromptForNextAiAction(
                 testCase = testCase.name,
@@ -179,11 +204,19 @@ class TestCaseRepositoryImpl(
                 screenContext = screenContext,
                 listOfPreviousSteps = gson.toJson(allPreviousSteps)
         )
-        val response = geminiClient.models.generateContent("gemini-2.0-flash-001", prompt, null)
-        val formattedResponse = removeJsonTags(response.text())
-        println("Formatted AI Response - $formattedResponse")
+        if(!mcpClient.isConnected) throw Exception("MCP Client is not connected")
+        val response = mcpClient.processQuery(testCase.name)
+        println("AI response - $response")
+//        val response = geminiClient.models.generateContent("gemini-2.0-flash-001", prompt, null)
+//        val formattedResponse = removeJsonTags(response.text())
+        println("Formatted AI Response - $response")
         return try {
-            gson.fromJson(formattedResponse, AiResponse::class.java)
+            AiResponse(
+                context = response,
+                action = AiAction(type = AiActionType.KillApp),
+                feedback = AiFeedback.PASS
+            )
+//            gson.fromJson(response, AiResponse::class.java)
         } catch (e: Exception) {
             println("Unable to generate action from AI - ${e.message}")
             AiResponse(
