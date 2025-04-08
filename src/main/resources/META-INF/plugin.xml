@@ -36,6 +36,11 @@
 
         <projectConfigurable instance="com.brahamchari.demoplugin.settings.MainSettings" />
 
+        <!-- Register the Notification Group -->
+        <notificationGroup id="com.brahamchari.demoplugin.notifications"
+                           displayType="BALLOON"
+                           isLogByDefault="true"/>
+
         <projectService serviceImplementation="com.brahamchari.demoplugin.MyProjectService"/>
         <projectService serviceImplementation="com.brahamchari.demoplugin.services.SettingService" />
 
