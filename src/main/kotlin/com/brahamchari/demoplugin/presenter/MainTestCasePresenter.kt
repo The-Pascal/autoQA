@@ -5,11 +5,13 @@ import com.brahamchari.demoplugin.models.TestCase
 import com.brahamchari.demoplugin.models.TestRunningStatus
 import com.brahamchari.demoplugin.repository.MainTestCaseView
 import com.brahamchari.demoplugin.repository.TestCaseRepository
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 
 interface MainTestCasePresenter {
 
@@ -25,42 +27,51 @@ interface MainTestCasePresenter {
 class MainTestCasePresenterImpl(
         private val view: MainTestCaseView,
         private val testCaseRepository: TestCaseRepository,
-        private val myProjectService: MyProjectService
-): MainTestCasePresenter {
+        private val myProjectService: MyProjectService,
+        private val project: Project,
+    parentDisposable: Disposable
+): MainTestCasePresenter, CoroutineScope, Disposable {
 
     private var selectedDeviceId: String? = null
 
     // first is deviceId & second is deviceModel
     private var allAdbDevices: List<Pair<String, String>>? = null
 
+
+    private val presenterJob = SupervisorJob()
+    override val coroutineContext: CoroutineContext
+        get() = presenterJob + Dispatchers.EDT
+
+    init {
+        Disposer.register(parentDisposable, this)
+        println("MainTestCasePresenter created for project -${project.name}")
+    }
+
     override fun loadPreviousTestCase(): List<TestCase> {
         TODO("Not yet implemented")
     }
 
     override fun runTestCase(testCase: TestCase) {
-        myProjectService.launchOnScope(Dispatchers.IO) {
-            val result = testCaseRepository.androidMCPServer.startServer()
-            println("Server started result - $result")
+
+        view.updateTestStatus(TestRunningStatus.RUNNING)
+
+        if(selectedDeviceId == null) {
+            println("No adb device selected")
+            // TODO: add notification here
+            return
         }
-//        view.updateTestStatus(TestRunningStatus.RUNNING)
-//
-//        if(selectedDeviceId == null) {
-//            println("No adb device selected")
-//            // TODO: add notification here
-//            return
-//        }
-//
-//        myProjectService.launchOnScope(Dispatchers.IO) {
-//            testCaseRepository.runTestCase(testCase, selectedDeviceId!!).collectLatest { testCaseRun ->
-//                withContext(Dispatchers.EDT) {
-//                    view.appendTestStep(testCaseRun.aiResponses)
-//
-//                    if(testCaseRun.runningStatus == TestRunningStatus.STOPPED) {
-//                        view.updateTestStatus(TestRunningStatus.STOPPED)
-//                    }
-//                }
-//            }
-//        }
+
+        myProjectService.launchOnScope(Dispatchers.IO) {
+            testCaseRepository.runTestCase(testCase, selectedDeviceId!!).collectLatest { testCaseRun ->
+                withContext(Dispatchers.EDT) {
+                    view.appendTestStep(testCaseRun.aiResponses)
+
+                    if(testCaseRun.runningStatus == TestRunningStatus.STOPPED) {
+                        view.updateTestStatus(TestRunningStatus.STOPPED)
+                    }
+                }
+            }
+        }
     }
 
     override fun stopRunningTest() {
@@ -85,6 +96,12 @@ class MainTestCasePresenterImpl(
                 view.updateAdbDevices(allDevices.map { it.second })
             }
         }
+    }
+
+    override fun dispose() {
+        println("MyPluginPresenter disposing scope for project ${project.name}")
+        // Cancel the presenter's scope when the UI is disposed
+        presenterJob.cancel(CancellationException("Presenter scope cancelled because UI was disposed."))
     }
 
 }

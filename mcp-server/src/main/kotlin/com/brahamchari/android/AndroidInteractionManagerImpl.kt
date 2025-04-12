@@ -13,43 +13,43 @@ class AndroidInteractionManagerImpl(private val adbPath: String) : DeviceInterac
     }
 
     override fun getScreenContext(): String {
-        return runAdbCommand("$adbPath shell uiautomator dump && $adbPath shell cat /sdcard/window_dump.xml")
+        return runAdbCommand("shell uiautomator dump && cat /sdcard/window_dump.xml")
                 ?: "Failed to retrieve screen context"
     }
 
     override fun tapOnScreen(x: Long, y: Long) {
-        runAdbCommand("$adbPath shell input tap $x $y")
+        runAdbCommand("shell input tap $x $y")
                 ?: throw RuntimeException("Failed to tap on screen at ($x, $y)")
     }
 
     override fun swipeOnScreen(startX: Long, startY: Long, endX: Long, endY: Long, duration: Long) {
-        runAdbCommand("$adbPath shell input swipe $startX $startY $endX $endY $duration")
+        runAdbCommand("shell input swipe $startX $startY $endX $endY $duration")
                 ?: throw RuntimeException("Failed to swipe on screen from ($startX, $startY) to ($endX, $endY) in $duration ms")
     }
 
     override fun inputText(input: String) {
         val escapedInput = input.replace(" ", "%s") // Handle spaces in input
-        runAdbCommand("$adbPath shell input text \"$escapedInput\"")
+        runAdbCommand("shell input text \"$escapedInput\"")
                 ?: throw RuntimeException("Failed to input text: $input")
     }
 
     override fun launchApp(packageName: String) {
-        runAdbCommand("$adbPath shell monkey -p $packageName -c android.intent.category.LAUNCHER 1")
+        runAdbCommand("shell monkey -p $packageName -c android.intent.category.LAUNCHER 1")
                 ?: throw RuntimeException("Failed to launch app: $packageName")
     }
 
     override fun closeApp(packageName: String) {
-        runAdbCommand("$adbPath shell am force-stop $packageName")
+        runAdbCommand("shell am force-stop $packageName")
                 ?: throw RuntimeException("Failed to close app: $packageName")
     }
 
     override fun pressBackButton() {
-        runAdbCommand("$adbPath shell input keyevent KEYCODE_BACK")
+        runAdbCommand("shell input keyevent KEYCODE_BACK")
                 ?: throw RuntimeException("Failed to press back button")
     }
 
     override fun listConnectedDevices(): List<DeviceInfo> {
-        val output = runAdbCommand("$adbPath devices -l") ?: return emptyList()
+        val output = runAdbCommand("devices -l") ?: return emptyList()
         return output.lines()
                 .drop(1) // Skip the header line
                 .filter { it.isNotBlank() }
@@ -58,7 +58,7 @@ class AndroidInteractionManagerImpl(private val adbPath: String) : DeviceInterac
 
     override fun executeCommand(command: String) {
         if (command.isBlank()) throw IllegalArgumentException("Command should not be empty")
-        runAdbCommand("$adbPath shell $command")
+        runAdbCommand("shell $command")
                 ?: throw RuntimeException("Failed to execute command: $command")
     }
 
@@ -73,6 +73,9 @@ class AndroidInteractionManagerImpl(private val adbPath: String) : DeviceInterac
                 args.add(0, "-s")
                 args.add(1, it)
             }
+
+            println("Adb path - $adbPath ")
+            println("Adb args - $args")
 
             val process = ProcessBuilder(adbPath, *args.toTypedArray())
                     .redirectErrorStream(true)
