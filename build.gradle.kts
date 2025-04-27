@@ -39,7 +39,9 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:${retrofitVersion}")
     implementation("com.squareup.retrofit2:converter-gson:${retrofitVersion}")
 
-    implementation("com.google.genai:google-genai:0.1.0")
+    implementation("com.google.genai:google-genai:0.1.0") {
+        exclude(group = "com.google.guava", module = "guava") // <-- ADD THIS EXCLUSION
+    }
     implementation(project(":mcp-server")) {
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
     }

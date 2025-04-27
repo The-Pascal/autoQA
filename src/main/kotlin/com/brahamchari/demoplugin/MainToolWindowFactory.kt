@@ -1,7 +1,7 @@
 package com.brahamchari.demoplugin
 
 import com.brahamchari.demoplugin.di.TestCaseInjector
-import com.brahamchari.demoplugin.tabs.MainToolWindowContent
+import com.brahamchari.demoplugin.tabs.TestToolWindowContent
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -13,12 +13,15 @@ internal class MainToolWindowFactory : ToolWindowFactory, DumbAware {
         println("Create tool window started")
 
         val testCaseInjector = TestCaseInjector.getTestCaseInjector()
-        val mainTWContentPanel = MainToolWindowContent(toolWindow, testCaseInjector).getContentPanel()
+//        val mainTWContentPanel = MainToolWindowContent(toolWindow, testCaseInjector).getContentPanel()
+        val testTWContentPanel = TestToolWindowContent(project, project, testCaseInjector)
 
-        val contentTab1 = ContentFactory.getInstance().createContent(mainTWContentPanel, "Tab1", false)
-        val contentTab2 = ContentFactory.getInstance().createContent(mainTWContentPanel, "Tab2", false)
-        toolWindow.contentManager.addContent(contentTab1)
-        toolWindow.contentManager.addContent(contentTab2)
+        val contentTabTest = ContentFactory.getInstance().createContent(testTWContentPanel, "Test", false)
+//        val contentTab1 = ContentFactory.getInstance().createContent(mainTWContentPanel, "Current", false)
+//        val contentTab2 = ContentFactory.getInstance().createContent(mainTWContentPanel, "Previous", false)
+        toolWindow.contentManager.addContent(contentTabTest)
+//        toolWindow.contentManager.addContent(contentTab1)
+//        toolWindow.contentManager.addContent(contentTab2)
         println("Create tool window finished")
     }
 }

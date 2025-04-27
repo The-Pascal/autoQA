@@ -14,6 +14,7 @@ import com.brahamchari.demoplugin.services.McpService
 import com.brahamchari.demoplugin.services.SettingService
 import com.google.genai.Client
 import com.google.gson.Gson
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 
@@ -29,12 +30,12 @@ interface TestCaseInjector {
 
     fun getSettingsState(project: Project): SettingsState
 
-    fun getTestCaseRepository(projectService: MyProjectService, geminiApiKey: String, project: Project): TestCaseRepository
-
-    fun getTestCasePresenter(
-            view: MainTestCaseView,
-            project: Project
-    ): MainTestCasePresenter
+    fun getTestCaseRepository(
+        projectService: MyProjectService,
+        geminiApiKey: String,
+        project: Project,
+        disposable: Disposable
+    ): TestCaseRepository
 
     companion object {
 
@@ -49,6 +50,8 @@ interface TestCaseInjector {
             testCaseInjector!!
         }
     }
+
+    fun getTestCasePresenter(view: MainTestCaseView, project: Project, disposable: Disposable): MainTestCasePresenter
 }
 
 class TestCaseInjectorImpl : TestCaseInjector {
@@ -69,6 +72,7 @@ class TestCaseInjectorImpl : TestCaseInjector {
     override val gson: Gson by lazy {
         Gson()
     }
+
     override val androidMCPClient: MCPClient by lazy {
         AndroidMCPClient(anthropicClient = anthropicClient)
     }
@@ -78,28 +82,37 @@ class TestCaseInjectorImpl : TestCaseInjector {
     }
 
     override fun getGeminiClient(geminiApiKey: String) =
-            geminiClient ?: synchronized(lockGemini) {
-                if (geminiClient != null) geminiClient
-                println("Gemini api key - $geminiApiKey")
-                geminiClient = Client.builder().apiKey(geminiApiKey).build()
-                geminiClient!!
-            }
+        geminiClient ?: synchronized(lockGemini) {
+            if (geminiClient != null) geminiClient
+            println("Gemini api key - $geminiApiKey")
+            geminiClient = Client.builder().apiKey(geminiApiKey).build()
+            geminiClient!!
+        }
 
     override fun getSettingsState(project: Project): SettingsState {
         return SettingService.getInstance(project).state
     }
 
-    override fun getTestCaseRepository(projectService: MyProjectService, geminiApiKey: String, project: Project): TestCaseRepository =
-            testCaseRepository ?: synchronized(lockRepo) {
-                if (testCaseRepository != null) testCaseRepository
-                testCaseRepository = TestCaseRepositoryImpl(getGeminiClient(geminiApiKey), projectService, project)
-                testCaseRepository!!
-            }
+    override fun getTestCaseRepository(
+        projectService: MyProjectService,
+        geminiApiKey: String,
+        project: Project,
+        disposable: Disposable
+    ): TestCaseRepository =
+        testCaseRepository ?: synchronized(lockRepo) {
+            if (testCaseRepository != null) testCaseRepository
+            testCaseRepository = TestCaseRepositoryImpl(project, disposable)
+            testCaseRepository!!
+        }
 
-    override fun getTestCasePresenter(view: MainTestCaseView, project: Project): MainTestCasePresenter {
+    override fun getTestCasePresenter(
+        view: MainTestCaseView,
+        project: Project,
+        disposable: Disposable
+    ): MainTestCasePresenter {
         val projectService = project.service<MyProjectService>()
-        val testCaseRepository = getTestCaseRepository(projectService, getSettingsState(project).apiKey, project)
-        // TODO: Do not use Project as parentDisposable here
-        return MainTestCasePresenterImpl(view, testCaseRepository, projectService, project, project)
+        val testCaseRepository =
+            getTestCaseRepository(projectService, getSettingsState(project).apiKey, project, disposable)
+        return MainTestCasePresenterImpl(view, testCaseRepository, disposable)
     }
 }
