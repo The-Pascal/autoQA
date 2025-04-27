@@ -1,11 +1,57 @@
 package com.brahamchari.demoplugin.utils
 
+import com.android.ddmlib.AndroidDebugBridge
+import com.android.ddmlib.IDevice
+import com.android.tools.idea.adb.AdbService
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.jvm.Throws
 
 object ADBUtils {
+
+    @Throws(Exception::class)
+    suspend fun fetchAdbDevices(project: Project): List<IDevice> = withContext(Dispatchers.IO) {
+        println("Executing fetchAdbDevicesInternal on ${Thread.currentThread().name}")
+        val devices: List<IDevice>
+        val bridge: AndroidDebugBridge?
+        try {
+            val adbFuture = AdbService.getInstance().getDebugBridge(project)
+            bridge = try {
+                adbFuture.get(5, TimeUnit.SECONDS)
+            } catch (e: TimeoutException) {
+                println("Timeout getting ADB bridge")
+                throw RuntimeException("Timeout connecting to ADB.")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                println("Error getting ADB bridge: ${e.message}")
+                throw RuntimeException("Cannot get ADB bridge: ${e.message}")
+            }
+
+            if (bridge != null && bridge.isConnected) {
+                devices = bridge.devices?.toList() ?: emptyList()
+                println("Fetched ${devices.size} devices.")
+            } else if (bridge == null) {
+                println("ADB Bridge instance is null after future.")
+                throw RuntimeException("ADB Bridge not available (SDK configured?).")
+            } else { // bridge != null but not connected
+                println("ADB Bridge is not connected.")
+                throw RuntimeException("ADB Bridge is not connected.")
+            }
+        } catch (e: Exception) {
+            // Catch and log, but rethrow standard Exception to signal failure
+            val errorMsg = "Failed to fetch ADB devices: ${e.message}"
+            e.printStackTrace()
+            println(errorMsg)
+            throw Exception(errorMsg, e)
+        }
+        devices
+    }
 
     val screenshotSaveFolderPath: String by lazy {
         val configDir = File(System.getProperty("user.home"), ".config/Google/AndroidStudio/plugins/testAi/")
