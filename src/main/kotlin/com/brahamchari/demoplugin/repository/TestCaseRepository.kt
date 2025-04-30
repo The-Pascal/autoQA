@@ -373,7 +373,7 @@ class TestCaseRepositoryImpl(
         // TODO: Implement actual AI call using MCPClient or other service
         // Example placeholder response based on feedback logic
         delay(1500) // Simulate AI processing time
-        return if (actionList.size < 3) { // Simulate 4 steps total
+        return if (actionList.size < 1) { // Simulate 4 steps total
             AiResponse(
                 context = "Simulated action for step ${actionList.size + 1}",
                 action = AiAction(

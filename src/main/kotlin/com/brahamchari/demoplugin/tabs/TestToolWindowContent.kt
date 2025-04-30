@@ -26,6 +26,7 @@ import com.intellij.ui.*
 import com.intellij.ui.components.*
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.WrapLayout
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -672,7 +673,7 @@ class TestToolWindowContent(
 
     // Define colors (adjust as needed, consider theme keys if possible)
     private val userBubbleColor = JBColor(Color(0xE1F5FE), Color(0x3A4C5E)) // Lighter Blue / Darker Blue-Gray
-    private val botPanelBackground = JBColor(Color(0xF2F2F2), Color(0x45494E)) // Very Light Gray / Dark Gray
+    private val botPanelBubbleColor = JBColor(Color(0xF2F2F2), Color(0x45494E)) // Very Light Gray / Dark Gray
     private val botPanelBorderColor = JBColor(Color(0xE0E0E0), Color(0x54585B)) // Light Gray / Medium Gray
     private val chatLogPanelBackground = JBColor(Color(0xE0E0E0), Color(0x3F424A)) // Light Gray / Medium Gray
 
@@ -680,8 +681,8 @@ class TestToolWindowContent(
     /** Creates the outer shell and inner content panel for a bot response. */
     private fun createBotResponsePanelShell(): JPanel {
         val botResponseContainer = RoundedPanel(BorderLayout(0, JBUI.scale(5))).apply {
-            background = botPanelBackground
-            border = JBUI.Borders.empty(10) // Padding inside the border
+            background = botPanelBubbleColor
+            border = JBUI.Borders.empty(24) // Padding inside the border
             alignmentX = Component.LEFT_ALIGNMENT
         }
 
@@ -823,104 +824,117 @@ class TestToolWindowContent(
     // Define theme-aware colors (place these with other class properties or constants)
     // Using namedColor provides better theme integration if the keys exist in the specific theme
     private val successColor =
-        JBColor.namedColor("Label.successForeground", JBColor(0x4CAF50, 0x6A8759)) // Default Greenish
+        JBColor.namedColor("Label.successForeground", JBColor(0x4CAF50, 0x10A37F)) // Default Greenish
     private val errorColor =
-        JBColor.namedColor("Label.errorForeground", JBColor(0xD50000, 0xFF5252))      // Default Reddish
+        JBColor.namedColor("Label.errorForeground", JBColor(0xD50000, 0xEB5757))      // Default Reddish
+    private val borderColor =
+        JBColor.namedColor("Label.borderColor", JBColor(0x52565A, 0x52565A))
     private val stoppedColor = JBUI.CurrentTheme.Label.foreground() // Default text color for stopped/neutral
 
     /**
-     * Adds, updates, or removes the final status indicator panel at the bottom
-     * of the provided contentPanel. It ensures only one status or loading indicator
-     * is present at a time.
+     * Adds, updates, or removes the final status indicator panel (with action buttons)
+     * at the bottom of the provided contentPanel, matching the desired image.
      *
      * @param contentPanel The JPanel (using BoxLayout Y_AXIS) to add the status to.
-     * @param status The final status (PASSED, FAILED, STOPPED), or null if the process is ongoing or status should be removed.
-     * @param errorMessage Optional error message to display for FAILED/STOPPED status.
+     * @param status The final status (PASSED, FAILED, STOPPED), or null to remove.
+     * @param errorMessage Optional error message.
      */
     private fun addOrUpdateFinalStatus(contentPanel: JPanel, status: TestRunningStatus?, errorMessage: String?) {
         // --- 1. Remove any PREVIOUS final status panel ---
-        // Find panel tagged with name "statusPanel" and remove it
         findComponentByType(contentPanel, JPanel::class.java) { it.name == "statusPanel" }?.let {
             contentPanel.remove(it)
             log.debug("Removed existing status panel.")
         }
 
-        // --- 2. Add new status panel IF status is final (PASSED, FAILED, STOPPED) ---
-        // We don't add anything here if status is null or RUNNING
+        // --- 2. Add new status panel IF status is final ---
         if (status != null && status != TestRunningStatus.RUNNING) {
 
             // --- 3. Remove loading indicator IF PRESENT ---
-            // Ensure loading indicator is removed before adding the final status
             findComponentByType(contentPanel, JPanel::class.java) { it.name == "loadingPanel" }?.let {
                 contentPanel.remove(it)
                 log.debug("Removed loading indicator panel.")
             }
 
-            // --- 4. Create the new status panel itself ---
-            val statusPanel = JPanel(FlowLayout(FlowLayout.CENTER)).apply {
+            // --- 4. Create the new status panel (using BorderLayout) ---
+            // This panel holds the status label (North) and buttons (South)
+            val statusPanel = RoundedPanel(BorderLayout(0, JBUI.scale(2))).apply {
                 name = "statusPanel" // Tag for easy removal later
-                isOpaque = false    // Let parent background show through
-                // Add a separator line above the status message for visual clarity
+                isOpaque = true    // Transparent background
+                background = botPanelBubbleColor
+                // Padding around the whole status section
                 border = JBUI.Borders.compound(
-                    JBUI.Borders.customLine(botPanelBorderColor, 1, 0, 0, 0), // Top line, theme color
-                    JBUI.Borders.emptyTop(8) // Padding between line and text
-                )
-                alignmentX = Component.LEFT_ALIGNMENT // Consistent alignment in BoxLayout
+                    RoundedLineBorder(borderColor, 16, 1),
+                    JBUI.Borders.empty(8, 0)
+                )// 15px top/bottom padding, 0 left/right
+                alignmentX = Component.LEFT_ALIGNMENT // Consistent alignment in parent BoxLayout
             }
 
-            // --- 5. Determine Text, Icon, and Color based on status ---
-            val statusText: String
-            val statusIcon: Icon?
-            val statusColor: Color
-
+            // --- 5. Determine Text, Icon, Color for Status Label ---
+            // (Logic unchanged from previous version)
+            val statusText: String; val statusIcon: Icon?; val statusColor: Color
             when (status) {
-                TestRunningStatus.PASSED -> {
-                    statusText =
-                        errorMessage ?: "Test Case Passed" // Show error message even on pass? Unlikely but possible.
-                    statusIcon = AllIcons.General.InspectionsOK // Green check
-                    statusColor = successColor
-                }
-
-                TestRunningStatus.FAILED -> {
-                    statusText = errorMessage ?: "Test Case Failed"
-                    statusIcon = AllIcons.General.Error // Red error icon
-                    statusColor = errorColor
-                }
-
-                TestRunningStatus.STOPPED -> {
-                    // Assumes STOPPED means user cancellation or premature end
-                    statusText = errorMessage ?: "Test Stopped"
-                    statusIcon = AllIcons.Process.Stop // Stop icon
-                    statusColor = stoppedColor // Use default text color
-                }
-                // Should not happen due to the 'if' condition, but added defensively
-                TestRunningStatus.RUNNING -> {
-                    log.warn("Status panel creation skipped for RUNNING state."); return
-                }
+                TestRunningStatus.PASSED -> { statusText = errorMessage ?: "Test Case Passed"; statusIcon = MyPluginIcons.Success; statusColor = successColor }
+                TestRunningStatus.FAILED -> { statusText = errorMessage ?: "Test Case Failed"; statusIcon = MyPluginIcons.Error; statusColor = errorColor }
+                TestRunningStatus.STOPPED -> { statusText = errorMessage ?: "Test Stopped"; statusIcon = MyPluginIcons.Error; statusColor = stoppedColor }
+                TestRunningStatus.RUNNING -> { log.warn("Status panel creation skipped for RUNNING state."); return }
             }
 
-            // --- 6. Create the status label ---
+            // --- 6. Create the Status Label ---
             val finalLabel = JBLabel(statusText, statusIcon, SwingConstants.CENTER).apply {
-                font = JBUI.Fonts.label().deriveFont(Font.BOLD) // Bold text for emphasis
-                foreground = statusColor // Set the calculated color
+                font = JBUI.Fonts.label().deriveFont(Font.BOLD) // Bold text
+                foreground = statusColor // Set color
+                // No extra border needed, spacing handled by statusPanel VGap and padding
+            }
+            // Add label to the TOP of the status panel
+            statusPanel.add(finalLabel, BorderLayout.NORTH)
+
+            // --- 7. Create the Action Buttons Panel ---
+            // Use FlowLayout to center the buttons horizontally
+            val actionsPanel = JBPanel<JBPanel<*>>(WrapLayout(FlowLayout.CENTER, JBUI.scale(15), 8)).apply {
+                isOpaque = false
             }
 
-            // --- 7. Add Label to Panel ---
-            statusPanel.add(finalLabel)
+            // --- 8. Create Action Buttons ---
+            // !! IMPORTANT: You MUST implement corresponding methods in your Presenter !!
+            // !!            and update the action listeners below.                   !!
 
-            // --- 8. Add Status Panel to the main Content Panel ---
-            // Ensure it's added at the end visually
+            // Suggestion: Get the logId associated with this contentPanel if needed by presenter actions
+            // val logId = (contentPanel.parent as? JPanel)?.getClientProperty("logId") as? String ?: ""
+
+            val rerunWithAiButton = JButton("Re-run with AI", MyPluginIcons.AIStars).apply { // Icon Suggestion
+                toolTipText = "Re-run the test case using AI analysis"
+                background = botPanelBubbleColor
+                // addActionListener { presenter.rerunTest(logId, true) } // Connect to Presenter
+            }
+            val rerunWithoutAiButton = JButton("Re-run without AI", MyPluginIcons.ReRun).apply {
+                toolTipText = "Re-run the test case using previous steps (if applicable)"
+                background = botPanelBubbleColor
+                // addActionListener { presenter.rerunTest(logId, false) } // Connect to Presenter
+            }
+            val saveButton = JButton("Save", MyPluginIcons.Bookmark).apply {
+                toolTipText = "Save test case results"
+                background = botPanelBubbleColor
+                // addActionListener { presenter.saveTestResult(logId) } // Connect to Presenter
+            }
+
+            // Add buttons to the actions panel
+            actionsPanel.add(rerunWithAiButton)
+            actionsPanel.add(rerunWithoutAiButton)
+            actionsPanel.add(saveButton)
+
+            // --- 9. Add Actions Panel to Status Panel ---
+            // Place the button row below the status label
+            statusPanel.add(actionsPanel, BorderLayout.SOUTH)
+
+            // --- 10. Add Status Panel to the main Content Panel ---
+            // contentPanel holds the steps/intro/etc. statusPanel is added at the end.
             contentPanel.add(statusPanel)
-            log.debug("Added final status panel: $statusText")
+            log.debug("Added final status panel with actions: $statusText")
 
         } else {
-            // Status is null or RUNNING, ensure no status panel is present
-            // (Removal was handled in step 1)
             log.debug("No final status provided or status is RUNNING, ensuring no status panel is shown.")
         }
-
-        // Note: Revalidation of contentPanel and its parents should happen
-        // in the calling method (e.g., updateBotResponseLog) after this function returns.
+        // Revalidation should happen in the calling method (updateBotResponseLog)
     }
 
     /** Helper method to scroll the main chat log scroll pane to the bottom. */

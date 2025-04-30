@@ -34,15 +34,4 @@ class RoundedPanel(
         }
         // No super.paintComponent(g) call
     }
-
-    override fun setBorder(border: Border?) {
-        // Recommend/ensure only EmptyBorder is used for padding
-        if (border is EmptyBorder || border == null) {
-            super.setBorder(border)
-        } else {
-            val insets = border.getBorderInsets(this)
-            super.setBorder(EmptyBorder(insets)) // Use padding from border, but make it empty
-            // log.warn("Non-EmptyBorder set on RoundedPanel, using EmptyBorder for padding.")
-        }
-    }
 }

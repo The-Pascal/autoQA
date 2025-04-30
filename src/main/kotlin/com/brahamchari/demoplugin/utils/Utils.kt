@@ -10,28 +10,32 @@ import org.xml.sax.InputSource
 object Utils {
 
     fun cleanHierarchyDump(xmlDump: String): List<Map<String, String>> {
-        val doc: Document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+        return try {
+            val doc: Document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
                 .parse(InputSource(StringReader(xmlDump)))
 
-        val xPath = XPathFactory.newInstance().newXPath()
-        val nodeList = xPath.evaluate("//node", doc, XPathConstants.NODESET) as org.w3c.dom.NodeList
+            val xPath = XPathFactory.newInstance().newXPath()
+            val nodeList = xPath.evaluate("//node", doc, XPathConstants.NODESET) as org.w3c.dom.NodeList
 
-        val importantNodes = mutableListOf<Map<String, String>>()
+            val importantNodes = mutableListOf<Map<String, String>>()
 
-        for (i in 0 until nodeList.length) {
-            val node = nodeList.item(i)
-            val attributes = listOf("resource-id", "class", "content-desc", "clickable", "bounds", "text", "checked", "focused", "selected")
+            for (i in 0 until nodeList.length) {
+                val node = nodeList.item(i)
+                val attributes = listOf("resource-id", "class", "content-desc", "clickable", "bounds", "text", "checked", "focused", "selected")
 
-            val nodeData = attributes.associateWith { attr ->
-                node.attributes?.getNamedItem(attr)?.nodeValue ?: ""
+                val nodeData = attributes.associateWith { attr ->
+                    node.attributes?.getNamedItem(attr)?.nodeValue ?: ""
+                }
+
+                // Add only non-empty nodes
+                if (nodeData.any { it.value.isNotBlank() }) {
+                    importantNodes.add(nodeData)
+                }
             }
 
-            // Add only non-empty nodes
-            if (nodeData.any { it.value.isNotBlank() }) {
-                importantNodes.add(nodeData)
-            }
+            return importantNodes
+        } catch (e: Exception) {
+            listOf(mapOf("Error in taking hierarchy dump, try again after 500ms" to e.message.toString()))
         }
-
-        return importantNodes
     }
 }
