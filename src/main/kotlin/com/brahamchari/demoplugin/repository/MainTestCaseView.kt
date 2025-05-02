@@ -1,14 +1,13 @@
 package com.brahamchari.demoplugin.repository // Or your actual package
 
 import com.android.ddmlib.IDevice
-import com.brahamchari.demoplugin.models.AiResponseData
 import com.brahamchari.demoplugin.models.TestExecutionLog
-import com.brahamchari.demoplugin.models.TestRunningStatus
+import com.brahamchari.demoplugin.models.TestStatus
 import javax.swing.Icon
 
 interface MainTestCaseView {
     // --- Test Case Methods ---
-    fun updateTestStatus(testRunningStatus: TestRunningStatus)
+    fun updateTestStatus(testStatus: TestStatus)
     fun getTestCaseInputText(): String
 
     // --- Log Area Methods ---

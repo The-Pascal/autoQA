@@ -30,9 +30,8 @@ interface MCPClient {
     suspend fun connect()
     suspend fun disconnect()
 
-    suspend fun processQuery(query: String): String
-
     fun shutdown() // To release resources
+    suspend fun processQuery(query: String, systemPrompt: String? = null): ProcessResult
 }
 
 class AndroidMCPClient(
@@ -192,10 +191,9 @@ class AndroidMCPClient(
         // connectionJob?.join()
     }
 
-    // Process a user query and return a string response
-    override suspend fun processQuery(query: String): String {
+    override suspend fun processQuery(query: String, systemPrompt: String?): ProcessResult {
         if (!isConnected && mcpClientLogic == null) {
-            throw Exception("MCP Client not initialized. Call connect() first")
+            return ProcessResult.Error(IllegalStateException("MCP Client not initialized. Call connect() first."))
         }
 
         // Create an initial message with a user's query
@@ -206,73 +204,57 @@ class AndroidMCPClient(
                 .build()
         )
 
+        val messageRequest = messageParamsBuilder.apply {
+            systemPrompt?.let { this.system(it) }
+            messages(messages)
+            tools(anthropicTools!!)
+        }.build()
+
+        val queryResultList = mutableListOf<QueryResult>()
+
         println("Messages - $messages\n\n")
-
-        val messageRequest =  messageParamsBuilder
-            .messages(messages)
-            .tools(anthropicTools!!)
-            .build()
-
         println("Message request - $messageRequest\n\n")
 
-        // Send the query to the Anthropic model and get the response
-        val response = anthropicClient.messages().create(
-            messageRequest
-        )
+        return try {
+            val response = withContext(Dispatchers.IO) {
+                anthropicClient.messages().create(messageRequest)
+            }
+            println("Response - $response\n\n")
 
-        println("Response - $response\n\n")
+            response.content().forEach { content ->
+                when {
+                    content.isText() -> {
+                        val textResult = content.text().getOrNull()?.text()
+                        println("\nisText() - ${content.text().getOrNull()?.text()}\n")
+                        queryResultList.add(QueryResult(textResult = textResult))
+                    }
 
-        val finalText = mutableListOf<String>()
-        response.content().forEach { content ->
-            when {
-                // Append text outputs from the response
-                content.isText() -> finalText.add(content.text().getOrNull()?.text() ?: "")
+                    content.isToolUse() -> {
+                        val toolName = content.toolUse().get().name()
+                        val toolArgs: Map<String, JsonValue>? =
+                            content.toolUse().get()._input().convert(object : TypeReference<Map<String, JsonValue>>() {})
 
-                // If the response indicates a tool use, process it further
-                content.isToolUse() -> {
-                    println("isTool Use ")
-                    val toolName = content.toolUse().get().name()
-                    val toolArgs =
-                        content.toolUse().get()._input().convert(object : TypeReference<Map<String, JsonValue>>() {})
-
-                    // Call the tool with provided arguments
-                    val result = mcpClientLogic?.callTool(
-                        name = toolName,
-                        arguments = toolArgs ?: emptyMap()
-                    )
-                    finalText.add("[Calling tool $toolName with args $toolArgs]")
-                    println("Result of $toolName with args $toolArgs result - ${result?.content}")
-                    println("Result of $toolName with args $toolArgs result - $result")
-
-                    // Add the tool result message to the conversation
-                    messages.add(
-                        MessageParam.builder()
-                            .role(MessageParam.Role.USER)
-                            .content(
-                                """
-                                        "type": "tool_result",
-                                        "tool_name": $toolName,
-                                        "result": ${result?.content?.joinToString("\n") { (it as TextContent).text ?: "" }}
-                                    """.trimIndent()
-                            )
-                            .build()
-                    )
-
-                    // Retrieve an updated response after tool execution
-                    val aiResponse = anthropicClient.messages().create(
-                        messageParamsBuilder
-                            .messages(messages)
-                            .build()
-                    )
-
-                    // Append the updated response to final text
-                    finalText.add(aiResponse.content().first().text().getOrNull()?.text() ?: "")
+                        // Call the tool with provided arguments
+                        val result = mcpClientLogic?.callTool(
+                            name = toolName,
+                            arguments = toolArgs ?: emptyMap()
+                        )
+                        println("\nisToolUse(): $toolName: $toolArgs - Result: ${result?.content?.joinToString("\n") { (it as TextContent).text ?: "" }}\n")
+                        queryResultList.add(QueryResult(toolCallInfo = ToolCallInfo(
+                            toolName = toolName,
+                            inputArgumentsJson = toolArgs ?: emptyMap(),
+                            toolCallResult = result?.content?.joinToString("\n") { (it as TextContent).text ?: "" }
+                                ?: "No result available"
+                        )))
+                    }
                 }
             }
-        }
 
-        println("Final text result - ${finalText.joinToString("\n", prefix = "", postfix = "")}")
-        return finalText.joinToString("\n", prefix = "", postfix = "")
+            println("\nFinal result - $queryResultList\n")
+            ProcessResult.Success(queryResult = queryResultList)
+        } catch (e: Exception) {
+            ProcessResult.Error(e)
+        }
     }
 
     override suspend fun disconnect() {

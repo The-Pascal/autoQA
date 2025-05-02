@@ -2,7 +2,7 @@ package com.brahamchari.demoplugin.models
 
 data class TestCaseRun(
         val aiResponses: MutableList<AiResponseData> = mutableListOf(),
-        var runningStatus: TestRunningStatus,
+        var runningStatus: TestStatus,
         var testFinalStatus: TestFinalStatus? = null,
         var message: String? = null
 )

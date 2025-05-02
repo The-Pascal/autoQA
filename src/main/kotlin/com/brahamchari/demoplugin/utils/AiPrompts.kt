@@ -13,9 +13,7 @@ object AiPrompts {
             - Do not consider a testcase to be PASSED or FAILED until you have VERIFIED using UI context of the screen.
             - Actions are taken step-by-step, correctly interacting with UI elements.
             - Ensure the action aligns with the test case intent.
-            - Ensure to send "adbCommand" inside "action" block when "type" is "TAP" or "AddText" or "Scroll".
             - If an action requires a delay, set delayAfter accordingly.
-            - For scrolling, specify scrollDirection.
             - Provide resourceId or contentDescription if applicable.
             
             **Screen UI Context:**
@@ -33,23 +31,8 @@ object AiPrompts {
             Based on the above, determine the next best action and return the output strictly in the following JSON format:
             {
                 "context": "Short explanation of what this action is trying to achieve",
-                "feedback": "PASS | FAIL | CONTINUE"
-                "action": {
-                  "adbCommand": "<string | null>"
-                  "type": "<TAP | AddText | Scroll | DeviceBackPress | KillApp | DELAY>",
-                  "resourceId": "<string | null>",
-                  "contentDescription": "<string | null>",
-                  "bounds": <{
-                    "x": <int>,
-                    "y": <int>,
-                    "width": <int>,
-                    "height": <int>
-                  } | null>,
-                  "inputText": "<string | null>",
-                  "scrollDirection": "<UP | DOWN | LEFT | RIGHT | null>",
-                  "isKeyboardAction": <true | false>,
-                  "delayAfter": <long | null>,
-                }
+                "feedback": "PASS | FAIL | CONTINUE",
+                "resourceId": "<string | null>"
             }
             
             Ensure that your response strictly adheres to this format with valid values.

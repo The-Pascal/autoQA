@@ -1,7 +1,6 @@
 package com.brahamchari.demoplugin.presenter
 
 import com.android.ddmlib.IDevice
-import com.brahamchari.demoplugin.MyProjectService
 import com.brahamchari.demoplugin.models.*
 import com.brahamchari.demoplugin.repository.MainTestCaseView
 import com.brahamchari.demoplugin.repository.TestCaseRepository
@@ -9,13 +8,12 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.AnimatedIcon
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import javax.swing.Icon
 import kotlin.coroutines.CoroutineContext
-import kotlin.random.Random
 
 interface MainTestCasePresenter {
 
@@ -58,8 +56,6 @@ class MainTestCasePresenterImpl(
         TODO("Not yet implemented")
     }
 
-// --- Test Execution Logic ---
-
     override fun runTestCase(inputText: String) {
         // Cancel any previous test run first
         stopRunningTestInternal("Starting new test case")
@@ -81,78 +77,108 @@ class MainTestCasePresenterImpl(
         // Update UI: Clear log, show input, add placeholder, set status
         view.clearLogArea()
         view.displayUserInputLog(inputText)
-        val logId = view?.addBotResponsePlaceholder()
-        if (logId == null) {
-            log.error("Failed to add bot response placeholder.")
-            view?.setStatus("UI Error.", AllIcons.General.Error)
-            return
-        }
-        view?.updateTestStatus(TestRunningStatus.RUNNING) // Set Stop button state
-        view?.setStatus("Processing test case...", AnimatedIcon.Default()) // Show loading
+        val logId = view.addBotResponsePlaceholder()
+
+        view.updateTestStatus(TestStatus.RUNNING) // Set Stop button state
+        view.setStatus("Processing test case...", AnimatedIcon.Default()) // Show loading
+
+        var testExecutionLog: TestExecutionLog? = null
 
         // Launch the test execution flow collection
         currentTestJob = launch { // Use presenterScope (this.launch)
             try {
                 // Assume repository method takes text & deviceId, returns Flow<TestExecutionLog>
-                testCaseRepository.runTestCase(inputText, targetDeviceId)
+                testCaseRepository.runTestCase(logId, inputText, targetDeviceId)
                     .onStart { log.debug("Test execution flow started for $logId") }
                     .onCompletion { cause ->
                         if (!currentCoroutineContext().isActive) return@onCompletion // Check scope/view validity
-                        handleTestCompletion(logId, inputText, cause)
+                        handleTestCompletion(testExecutionLog, inputText, cause)
                     }
                     .collect { logUpdate ->
                         if (!isActive) return@collect // Check if job was cancelled
-                        log.warn("\n\nUpdating view for $logId ${logUpdate.finalStatus} ${logUpdate.isLoading}\n\n")
+                        log.warn("\n\nUpdating view for $logId ${logUpdate.status}\n\n")
+
                         view.updateBotResponseLog(logId, logUpdate)
-                        // Update main status based on progress or intermediate state if needed
-                        if (logUpdate.finalStatus == null && logUpdate.isLoading) {
-                            view?.setStatus("Running Step ${logUpdate.steps.size + 1}...", AnimatedIcon.Default())
-                        }
+                        testExecutionLog = logUpdate.copy()
+
+                        updateTestStatusDisplay(logUpdate, testExecutionLog)
                     }
             } catch (e: CancellationException) {
                 log.info("Test execution flow cancelled for $logId: ${e.message}")
-                handleTestCompletion(logId, inputText, e) // Treat cancellation as failure/stop
+                handleTestCompletion(testExecutionLog, inputText, e) // Treat cancellation as failure/stop
             } catch (e: Exception) {
                 log.error("Failed to start or collect test execution flow for $logId: ${e.message}", e)
-                handleTestCompletion(logId, inputText, e) // Treat other errors as failure
+                handleTestCompletion(testExecutionLog, inputText, e) // Treat other errors as failure
             } finally {
                 // Ensure state is reset if job ends unexpectedly outside onCompletion
                 if(isActive){ // Only reset if not naturally completed/cancelled
-                    view?.updateTestStatus(TestRunningStatus.STOPPED)
+                    view.updateTestStatus(TestStatus.STOPPED)
                 }
             }
         }
     }
 
-    // Handles UI updates when the test flow completes or is cancelled/errored
-    private fun handleTestCompletion(logId: String, inputText: String, cause: Throwable?) {
-        view?.updateTestStatus(TestRunningStatus.STOPPED) // Reset button to "Send"
+    private fun updateTestStatusDisplay(
+        logUpdate: TestExecutionLog,
+        testExecutionLog: TestExecutionLog?
+    ) {
+        val testStepNumber = (logUpdate.executionResult?.testSteps?.size ?: 0) + 1
+        val statusText: String
+        val statusIcon: Icon?
+        when (logUpdate.status) {
+            TestStatus.RUNNING -> {
+                statusText = "Running Step $testStepNumber..."
+                statusIcon = AnimatedIcon.Default()
+            }
 
-        if (cause == null) {
-            // Normal completion - final status should be in the last emitted log data
-            log.info("Test execution flow completed successfully for $logId.")
-            // Status bar might already show Passed/Failed from the last emission
-            // Re-evaluate status based on devices if needed: updateStatusBasedOnSelection()
-        } else if (cause is CancellationException) {
-            log.info("Test execution explicitly cancelled or stopped for $logId.")
-            // Update the specific log block to show stopped/cancelled status
-            val stoppedLog = TestExecutionLog(
-                id = logId, userInput = inputText, isLoading = false,
-                finalStatus = TestRunningStatus.STOPPED, // Or a specific CANCELLED status?
-                errorMessage = "Test stopped by user."
-            )
-            view?.updateBotResponseLog(logId, stoppedLog)
-            view?.setStatus("Test stopped.", AllIcons.Process.Stop)
-        } else {
-            // Failure
-            log.error("Test execution flow failed for $logId.", cause)
-            val errorLog = TestExecutionLog(
-                id = logId, userInput = inputText, isLoading = false,
-                finalStatus = TestRunningStatus.FAILED,
-                errorMessage = cause.message ?: "Unknown Error"
-            )
-            view?.updateBotResponseLog(logId, errorLog)
-            view?.setStatus("Test Failed: ${cause.message}", AllIcons.General.Error)
+            TestStatus.PASSED -> {
+                statusText = testExecutionLog?.error?.message ?: "Test Passed"
+                statusIcon = AllIcons.General.InspectionsOK
+            }
+
+            TestStatus.FAILED -> {
+                statusText = testExecutionLog?.error?.message ?: "Test Failed"
+                statusIcon = AllIcons.General.Error
+            }
+
+            TestStatus.STOPPED -> {
+                statusText = testExecutionLog?.error?.message ?: "Test Stopped"
+                statusIcon = AllIcons.Process.Stop
+            }
+        }
+        view.setStatus(statusText, statusIcon)
+    }
+
+    // Handles UI updates when the test flow completes or is cancelled/errored
+    private fun handleTestCompletion(testExecutionLog: TestExecutionLog?, inputText: String, cause: Throwable?) {
+        view.updateTestStatus(TestStatus.STOPPED) // Reset button to "Send"
+
+        if(testExecutionLog == null) {
+            view.setStatus("Something went wrong. Please try again!", AllIcons.General.Error)
+            return
+        }
+
+        val logId = testExecutionLog.id
+        when (cause) {
+            null -> {
+                // Normal completion - final status should be in the last emitted log data
+                log.info("Test execution flow completed successfully for $logId.")
+            }
+            is CancellationException -> {
+                log.info("Test execution explicitly cancelled or stopped for $logId.")
+                testExecutionLog.status = TestStatus.STOPPED
+                testExecutionLog.error = ExecutionError("Test stopped by user")
+                view.updateBotResponseLog(logId, testExecutionLog)
+                view.setStatus("Test stopped.", AllIcons.Process.Stop)
+            }
+            else -> {
+                // Failure
+                log.error("Test execution flow failed for $logId.", cause)
+                testExecutionLog.status = TestStatus.FAILED
+                testExecutionLog.error = ExecutionError(cause.message ?: "Unknown Error")
+                view.updateBotResponseLog(logId, testExecutionLog)
+                view.setStatus("Test Failed: ${cause.message}", AllIcons.General.Error)
+            }
         }
         // Clear the job reference once completed/cancelled/failed
         if (currentTestJob?.isCompleted == true || currentTestJob?.isCancelled == true) {
@@ -169,22 +195,20 @@ class MainTestCasePresenterImpl(
     private fun stopRunningTestInternal(reason: String) {
         if (currentTestJob?.isActive == true) {
             log.info("Attempting to stop running test ($reason)...")
-            view?.setStatus("Stopping test...", AllIcons.Process.Stop)
-            // Cancel the collecting coroutine job
+            view.setStatus("Stopping test...", AllIcons.Process.Stop)
             currentTestJob?.cancel(CancellationException(reason))
-            currentTestJob = null // Clear reference
+            currentTestJob = null
 
-            // Optionally, call repository's suspend function if it needs explicit cleanup
-            // launch { // Launch separate coroutine for repository stop if needed
-            //     try {
-            //         testCaseRepository.stopRunningTest()
-            //         log.info("Repository stop notified.")
-            //     } catch (e: Exception) { log.error("Error notifying repository stop", e) }
-            // }
+             launch {
+                 try {
+                     testCaseRepository.stopRunningTest()
+                     log.info("Repository stop notified.")
+                 } catch (e: Exception) { log.error("Error notifying repository stop", e) }
+             }
         } else {
             log.debug("Stop requested but no active test job found.")
             // Ensure UI is in stopped state if somehow out of sync
-            view?.updateTestStatus(TestRunningStatus.STOPPED)
+            view?.updateTestStatus(TestStatus.STOPPED)
         }
     }
 

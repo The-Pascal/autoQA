@@ -233,7 +233,7 @@ class TestToolWindowContent(
         // Initialize button state
         ApplicationManager.getApplication().invokeLater {
             if (!Disposer.isDisposed(disposable)) {
-                updateRunStopButtonState(TestRunningStatus.STOPPED)
+                updateRunStopButtonState(TestStatus.STOPPED)
             }
         }
 
@@ -340,7 +340,7 @@ class TestToolWindowContent(
     }
 
     // Renamed and updated to handle the new runStopButton
-    private fun updateRunStopButtonState(status: TestRunningStatus) {
+    private fun updateRunStopButtonState(status: TestStatus) {
         // Ensure button is initialized before updating state (should be safe here)
         if (!::runStopButton.isInitialized) return
 
@@ -350,7 +350,7 @@ class TestToolWindowContent(
         log.warn("Update Run stop button state - $status")
 
         when (status) {
-            TestRunningStatus.RUNNING -> {
+            TestStatus.RUNNING -> {
                 runStopButton.text = "Stop"
                 runStopButton.icon = AllIcons.Actions.Suspend
                 runStopButton.toolTipText = "Stop the current test execution"
@@ -359,7 +359,7 @@ class TestToolWindowContent(
                 testCaseInputArea.isEnabled = false // Disable input while running
             }
 
-            TestRunningStatus.STOPPED -> {
+            TestStatus.STOPPED -> {
                 runStopButton.text = "Send"
                 runStopButton.icon = AllIcons.Actions.Execute
                 runStopButton.toolTipText = "Send the test case text to execute"
@@ -386,12 +386,12 @@ class TestToolWindowContent(
 
     // --- Interface Implementation (MainTestCaseView) ---
 
-    override fun updateTestStatus(testRunningStatus: TestRunningStatus) {
+    override fun updateTestStatus(testStatus: TestStatus) {
         // (Keep invokeLater for EDT safety)
         ApplicationManager.getApplication().invokeLater({
             if (Disposer.isDisposed(disposable)) return@invokeLater
-            log.info("View received test status update: $testRunningStatus")
-            updateRunStopButtonState(testRunningStatus) // Update the new button
+            log.info("View received test status update: $testStatus")
+            updateRunStopButtonState(testStatus) // Update the new button
             // Presenter should handle the statusLabel text via setStatus
         }, ModalityState.any())
     }
@@ -520,7 +520,7 @@ class TestToolWindowContent(
             // 2. Create the main Bot Content Bubble Shell - Unchanged
             val botPanelShell = createBotResponsePanelShell()
             val contentPanel = botPanelShell.getClientProperty("contentPanel") as JPanel
-            rebuildBotResponsePanelContent(contentPanel, TestExecutionLog(id = logId, isLoading = true)) // Initial loading
+            rebuildBotResponsePanelContent(contentPanel, null) // Initial loading
             botPanelShell.alignmentX = Component.LEFT_ALIGNMENT // Needed for BoxLayout Y below
 
             // 3. Create Vertical Stack Panel (Status + Bubble) - Unchanged
@@ -597,7 +597,6 @@ class TestToolWindowContent(
             if (Disposer.isDisposed(disposable)) return@invokeLater
             botResponsePanels.clear()
             if (::chatLogPanel.isInitialized) {
-//                chatLogPanel.removeAll()
                 chatLogPanel.revalidate()
                 chatLogPanel.repaint()
                 log.info("Chat log area cleared.")
@@ -701,12 +700,14 @@ class TestToolWindowContent(
     }
 
     /** Rebuilds the *content* of a bot response panel based on log data. */
-    private fun rebuildBotResponsePanelContent(contentPanel: JPanel, logData: TestExecutionLog) {
+    private fun rebuildBotResponsePanelContent(contentPanel: JPanel, logData: TestExecutionLog?) {
         contentPanel.removeAll() // Clear previous dynamic content
 
+        val intro = logData?.executionResult?.introduction
+
         // 1. Add Introduction
-        if (!logData.botIntroduction.isNullOrBlank()) {
-            val introArea = JTextArea(logData.botIntroduction).apply {
+        if (!intro.isNullOrBlank()) {
+            val introArea = JTextArea(intro).apply {
                 isEditable = false; lineWrap = true; wrapStyleWord = true; isOpaque = false
                 foreground = JBUI.CurrentTheme.Label.foreground(); font = JBUI.Fonts.label()
                 border = JBUI.Borders.emptyBottom(8)
@@ -716,14 +717,15 @@ class TestToolWindowContent(
         }
 
         // 2. Add Steps
-        logData.steps.forEach { step ->
+        logData?.executionResult?.testSteps?.forEach { step ->
             contentPanel.add(createStepPanel(step))
             contentPanel.add(Box.createVerticalStrut(JBUI.scale(10))) // Spacing between steps
         }
 
         // 3. Add Loading Indicator OR Final Status
-        addOrUpdateLoadingIndicator(contentPanel, logData.isLoading && logData.finalStatus == null)
-        addOrUpdateFinalStatus(contentPanel, logData.finalStatus, logData.errorMessage)
+        val isLoading = (logData == null || logData.status == TestStatus.RUNNING)
+        addOrUpdateLoadingIndicator(contentPanel, isLoading)
+        addOrUpdateFinalStatus(contentPanel, logData?.status, logData?.error?.message, logData)
 
         // contentPanel.revalidate() // Called by caller (updateBotResponseLog)
         // contentPanel.repaint()
@@ -735,14 +737,13 @@ class TestToolWindowContent(
             isOpaque = false
             // Add identifiers for optimized updates if needed later
             putClientProperty("isStepPanel", true)
-            putClientProperty("stepNumber", step.stepNumber)
             border = JBUI.Borders.emptyBottom(5) // Space below step panel
             alignmentX = Component.LEFT_ALIGNMENT
         }
 
         // Step Title/Header (Improved Layout)
         val stepHeader = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
-        stepHeader.add(JBLabel("Step ${step.stepNumber}:").apply {
+        stepHeader.add(JBLabel("${step.title}:").apply {
             font = JBUI.Fonts.label().deriveFont(Font.BOLD)
         })
         // Add header above the main content for this step
@@ -764,7 +765,7 @@ class TestToolWindowContent(
             alignmentX = Component.LEFT_ALIGNMENT
         }
         // Add Title here if preferred
-        detailsPanel.add(JBLabel("Step ${step.stepNumber}:").apply {
+        detailsPanel.add(JBLabel("${step.title}:").apply {
             font = JBUI.Fonts.label().deriveFont(Font.BOLD)
             border = JBUI.Borders.emptyBottom(4)
         })
@@ -790,9 +791,15 @@ class TestToolWindowContent(
             }
         }
 
-        addDetail("Action", step.action)
-        addDetail("Resource ID", step.resourceId)
-        addDetail("Bounds", step.bounds)
+        step.actions?.forEach { action ->
+            action.actionContext?.let {
+                addDetail("Action", it.context)
+                addDetail("Resource ID", it.resourceId)
+            }
+            action.toolInfo?.let {
+                addDetail("Tool Used", it.toolName)
+            }
+        }
 
         stepContentPanel.add(detailsPanel, BorderLayout.CENTER)
 
@@ -839,7 +846,12 @@ class TestToolWindowContent(
      * @param status The final status (PASSED, FAILED, STOPPED), or null to remove.
      * @param errorMessage Optional error message.
      */
-    private fun addOrUpdateFinalStatus(contentPanel: JPanel, status: TestRunningStatus?, errorMessage: String?) {
+    private fun addOrUpdateFinalStatus(
+        contentPanel: JPanel,
+        status: TestStatus?,
+        errorMessage: String?,
+        logData: TestExecutionLog?
+    ) {
         // --- 1. Remove any PREVIOUS final status panel ---
         findComponentByType(contentPanel, JPanel::class.java) { it.name == "statusPanel" }?.let {
             contentPanel.remove(it)
@@ -847,7 +859,7 @@ class TestToolWindowContent(
         }
 
         // --- 2. Add new status panel IF status is final ---
-        if (status != null && status != TestRunningStatus.RUNNING) {
+        if (status != null && status != TestStatus.RUNNING) {
 
             // --- 3. Remove loading indicator IF PRESENT ---
             findComponentByType(contentPanel, JPanel::class.java) { it.name == "loadingPanel" }?.let {
@@ -873,10 +885,10 @@ class TestToolWindowContent(
             // (Logic unchanged from previous version)
             val statusText: String; val statusIcon: Icon?; val statusColor: Color
             when (status) {
-                TestRunningStatus.PASSED -> { statusText = errorMessage ?: "Test Case Passed"; statusIcon = MyPluginIcons.Success; statusColor = successColor }
-                TestRunningStatus.FAILED -> { statusText = errorMessage ?: "Test Case Failed"; statusIcon = MyPluginIcons.Error; statusColor = errorColor }
-                TestRunningStatus.STOPPED -> { statusText = errorMessage ?: "Test Stopped"; statusIcon = MyPluginIcons.Error; statusColor = stoppedColor }
-                TestRunningStatus.RUNNING -> { log.warn("Status panel creation skipped for RUNNING state."); return }
+                TestStatus.PASSED -> { statusText = errorMessage ?: "Test Case Passed"; statusIcon = MyPluginIcons.Success; statusColor = successColor }
+                TestStatus.FAILED -> { statusText = errorMessage ?: "Test Case Failed"; statusIcon = MyPluginIcons.Error; statusColor = errorColor }
+                TestStatus.STOPPED -> { statusText = errorMessage ?: "Test Stopped"; statusIcon = MyPluginIcons.Error; statusColor = stoppedColor }
+                TestStatus.RUNNING -> { log.warn("Status panel creation skipped for RUNNING state."); return }
             }
 
             // --- 6. Create the Status Label ---
