@@ -707,13 +707,17 @@ class TestToolWindowContent(
 
         // 1. Add Introduction
         if (!intro.isNullOrBlank()) {
+            val bottomLineBorder = JBUI.Borders.customLine(borderColor, 0, 0, 1, 0)
+            val paddingBelowLineBorder = JBUI.Borders.emptyBottom(JBUI.scale(10))
+
             val introArea = JTextArea(intro).apply {
                 isEditable = false; lineWrap = true; wrapStyleWord = true; isOpaque = false
                 foreground = JBUI.CurrentTheme.Label.foreground(); font = JBUI.Fonts.label()
-                border = JBUI.Borders.emptyBottom(8)
+                border = JBUI.Borders.compound(bottomLineBorder, paddingBelowLineBorder)
                 alignmentX = Component.LEFT_ALIGNMENT
             }
             contentPanel.add(introArea)
+            contentPanel.add(Box.createVerticalStrut(JBUI.scale(10)))
         }
 
         // 2. Add Steps

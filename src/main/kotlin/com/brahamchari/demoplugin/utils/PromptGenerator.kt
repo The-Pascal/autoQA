@@ -5,13 +5,14 @@ package com.brahamchari.demoplugin.utils
  */
 object PromptGenerator {
 
-    private val systemPromptText = """
+    private val actionSystemPromptText = """
         You are an expert AI assistant specializing in step-by-step Android UI test automation. Your primary goal is to analyze the provided UI state and test case information to determine the single next logical action required to validate the test case.
 
         **Core Rules:**
         - Base your decisions STRICTLY on the provided 'Current Screen UI Context', 'Last Action Performed', 'Previous Steps Summary', and 'Test Case Goal'.
         - Determine test outcome (PASS/FAIL) ONLY based on verifiable evidence within the 'Current Screen UI Context'. Do not assume outcomes.
         - Ensure actions interact correctly with UI elements (use 'resourceId' if possible).
+        - If you decide to use a tool, then ONLY use a SINGLE tool in one response.
 
         **Decision Process & Tool Use:**
         1. Analyze the current context and history against the test case goal.
@@ -35,8 +36,8 @@ object PromptGenerator {
     /**
      * Returns the static system prompt defining the AI's role, rules, and output format.
      */
-    fun getSystemPrompt(): String {
-        return systemPromptText
+    fun getActionSystemPrompt(): String {
+        return actionSystemPromptText
     }
 
     /**
@@ -48,7 +49,7 @@ object PromptGenerator {
      * @param listOfPreviousSteps A summary or list (e.g., as JSON string) of the actions taken so far in this test case.
      * @return A formatted string containing the user prompt for the current turn.
      */
-    fun getUserPrompt(
+    fun getActionUserPrompt(
         testCase: String,
         screenContext: String,
         lastAction: String,
@@ -77,18 +78,47 @@ object PromptGenerator {
             Determine the next best *action JSON* OR *request necessary tool calls* OR *both* based on the rules and context provided. Respond ONLY with the specifications provided.
             """.trimIndent()
     }
+
+    private val introductionSystemPromptText = """
+        You are an AI assistant helping with Android UI test automation planning. Your task is to analyze a user-provided test case description and the initial UI context of the app's screen.
+
+        Based on this information, generate a concise introduction that includes:
+        1. Your understanding of the user's primary goal for the test case.
+        2. A brief, high-level outline (in natural language, 2-4 sentences) of the key steps you anticipate needing to perform to achieve and verify the test case goal.
+
+        Focus on clarity and the overall test flow. Do NOT attempt to execute any actions or tools. Do NOT output JSON. Respond ONLY with the natural language introduction text.
+        """.trimIndent()
+
+    /**
+     * Returns the system prompt specifically for generating the initial test case introduction.
+     */
+    fun getIntroductionSystemPrompt(): String {
+        return introductionSystemPromptText
+    }
+
+    /**
+     * Generates the user prompt for requesting the initial test case introduction.
+     *
+     * @param userTestPrompt The natural language test case goal provided by the user.
+     * @param initialScreenContext The UI hierarchy or relevant elements of the *initial* screen state (e.g., as JSON string).
+     * @return A formatted string containing the user prompt for generating the introduction.
+     */
+    fun getIntroductionUserPrompt(
+        userTestPrompt: String,
+        initialScreenContext: String // Optional: Might not need screen context for just the intro plan
+    ): String {
+        // You might simplify this further if the initial screen context isn't strictly needed
+        // for the AI to just outline its understanding and plan.
+        return """
+            User's Test Case Prompt:
+            $userTestPrompt
+
+            Initial Screen UI Context:
+            ```json
+            $initialScreenContext
+            ```
+
+            Please provide the introductory text as requested in the system prompt (understanding of goal and high-level plan). Respond ONLY with the natural language text.
+            """.trimIndent()
+    }
 }
-
-// --- Example Usage ---
-// val systemPrompt = PromptGenerator.getSystemPrompt()
-// val userPrompt = PromptGenerator.getUserPrompt(
-//     testCase = "Verify user can log in with valid credentials.",
-//     screenContext = "{ \"elements\": [...] }", // Your actual screen context JSON
-//     lastAction = "{ \"context\": \"Entered username\", \"feedback\": \"CONTINUE\", \"resourceId\": \"id/username_field\" }", // Your last action JSON
-//     listOfPreviousSteps = "[ { \"context\": \"Entered username...\" } ]" // Your previous steps JSON/summary
-// )
-
-// println("--- System Prompt ---")
-// println(systemPrompt)
-// println("\n--- User Prompt ---")
-// println(userPrompt)

@@ -8,7 +8,6 @@ import com.anthropic.models.messages.Model
 import com.anthropic.models.messages.ToolUnion
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.google.gson.Gson
 import io.ktor.client.*
 import io.ktor.client.engine.cio.* // Or another engine like OkHttp
 import io.ktor.client.plugins.*
@@ -21,7 +20,6 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.JsonObject
 import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.optionals.getOrNull
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 // Interface defining the client operations (optional but good practice)
@@ -30,8 +28,9 @@ interface MCPClient {
     suspend fun connect()
     suspend fun disconnect()
 
-    fun shutdown() // To release resources
-    suspend fun processQuery(query: String, systemPrompt: String? = null): ProcessResult
+    fun shutdown()
+
+    suspend fun processQuery(userPrompt: String, systemPrompt: String? = null): ProcessResult
 }
 
 class AndroidMCPClient(
@@ -191,7 +190,7 @@ class AndroidMCPClient(
         // connectionJob?.join()
     }
 
-    override suspend fun processQuery(query: String, systemPrompt: String?): ProcessResult {
+    override suspend fun processQuery(userPrompt: String, systemPrompt: String?): ProcessResult {
         if (!isConnected && mcpClientLogic == null) {
             return ProcessResult.Error(IllegalStateException("MCP Client not initialized. Call connect() first."))
         }
@@ -200,7 +199,7 @@ class AndroidMCPClient(
         val messages = mutableListOf(
             MessageParam.builder()
                 .role(MessageParam.Role.USER)
-                .content(query)
+                .content(userPrompt)
                 .build()
         )
 

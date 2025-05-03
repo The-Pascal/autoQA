@@ -28,11 +28,7 @@ import java.util.UUID
 interface TestCaseRepository {
     var isTestRunning: Boolean
 
-    fun runTestCaseOld(textInput: String, deviceId: String): Flow<TestExecutionOld>
-
     fun runTestCase(testId: String, textInput: String, deviceId: String): Flow<TestExecutionLog>
-
-    fun runSomeTest()
 
     suspend fun stopRunningTest()
 
@@ -66,180 +62,6 @@ class TestCaseRepositoryImpl(
 
     @Volatile
     override var isTestRunning: Boolean = false
-
-    override fun runTestCaseOld(textInput: String, deviceId: String): Flow<TestExecutionOld> = channelFlow {
-        val response = TestExecutionLog(
-            id = UUID.randomUUID().toString(),
-            userInput = textInput,
-            startTime = System.currentTimeMillis(),
-            status = TestStatus.RUNNING,
-            isSaved = false
-        )
-
-        if (isTestRunning) {
-            // TODO: ideally execution shouldn't come here if test is already running
-            val execution = response.copy(
-                status = TestStatus.FAILED,
-                error = ExecutionError(message = "Test is already running")
-            )
-            trySend(
-                TestExecutionOld(
-                    userInput = textInput,
-                    isLoading = false,
-                    finalStatus = TestStatus.FAILED,
-                    errorMessage = "Test is already running"
-                )
-            )
-            close(IllegalStateException("Test is already running"))
-            return@channelFlow
-        }
-
-        // Check MCP Service (Assuming this logic is correct)
-        var serviceInitStatus = true
-        if (!mcpService.isServiceRunning) {
-            log.info("MCP Service not running, attempting to initialize...")
-            serviceInitStatus = mcpService.initializeAndStart()
-        }
-        if (!serviceInitStatus) {
-            log.error("MCP Service unavailable")
-            val execution = response.copy(
-                status = TestStatus.FAILED,
-                error = ExecutionError(message = "Request service (MCP) unavailable")
-            )
-            trySend(
-                TestExecutionOld(
-                    userInput = textInput,
-                    isLoading = false,
-                    finalStatus = TestStatus.FAILED,
-                    errorMessage = "Required service (MCP) unavailable"
-                )
-            )
-            close(IllegalStateException("MCP Service unavailable"))
-            return@channelFlow
-        }
-
-        isTestRunning = true
-        log.info("\n\n\n\nRun Test case started for input: '$textInput'\n\n\n\n")
-
-        // --- Initialize Log Data ---
-        // Create a mutable log object to update throughout the flow
-        val currentLogData = TestExecutionOld(
-            userInput = textInput,
-            isLoading = true,
-            finalStatus = null // Explicitly null initially
-        )
-        // TODO: Do we need this here?
-        trySend(currentLogData.copy()) // Emit initial loading state
-
-        // Launch the main execution logic within the repository's scope
-        currentTestJob = repositoryScope.launch(Dispatchers.IO) {
-            var loopError: Exception? = null
-            try {
-                var previousResponseInternal = getInitialAction()
-                val testCaseObjectForAI = TestCase(id = -1, name = textInput)
-
-                // --- Optional: Emit Introduction Step ---
-                // You might want a specific AI call here for the intro, or extract from first response
-                 currentLogData.botIntroduction = "Processing test: '$textInput'..." // Example
-
-                response.executionResult = ExecutionResult(
-                    introduction = "Processing test: ${getTestIntro(textInput)}",
-                    llmUsed = "",
-                    targetDeviceId = deviceId
-                )
-                 trySend(currentLogData.copy(isLoading = true)) // Emit intro + loading
-                 delay(500)
-
-                // --- Main Step Loop ---
-                while (previousResponseInternal.aiResponse.feedback == AiFeedback.CONTINUE && isActive) { // Check isActive
-                    val currentStepIndex = currentLogData.steps.size
-                    log.info("\n\nRunning step ${currentStepIndex + 1}")
-                    currentLogData.isLoading = true // Mark as loading for this step
-                    // trySend(currentLogData.copy()) // Optional: emit loading state before executing step actions
-
-
-
-                    // Prepare context for AI (using actual TestStep objects might be better)
-                    val previousStepsContext = currentLogData.steps.map { it.action ?: "" }
-
-                    val mcpResponse = makeMCPCall(response, deviceId)
-
-                    val aiResponse = makeAiCall(
-                        previousResponseInternal.aiResponse,
-                        testCaseObjectForAI,
-                        getCleanedScreenContext("screenContext"),
-                        previousStepsContext,
-                        mcpService.mcpClient
-                    )
-
-                    // Update internal state for the *next* loop iteration
-                    val currentResponseInternal = AiResponseData(
-                        aiResponse = aiResponse, timestamp = System.currentTimeMillis(), screenshotPath = "screenshotPath"
-                    )
-                    previousResponseInternal = currentResponseInternal
-
-                    // Create TestStep for logging
-                    val newStep = mapToTestStep(currentStepIndex, currentResponseInternal)
-                    currentLogData.steps.add(newStep)
-
-                    // Determine state after this step
-                    currentLogData.finalStatus = mapFeedbackToFinalStatus(aiResponse.feedback)
-                    currentLogData.isLoading =
-                        (currentLogData.finalStatus == null) // Still loading if status isn't final
-
-                    // Emit the updated log data including the new step
-                    trySend(currentLogData.copy())
-                    log.info("Emitted step ${newStep.stepNumber}. FinalStatus: ${currentLogData.finalStatus}, Loading: ${currentLogData.isLoading}\n\n")
-                    // delay(500) // Optional delay between steps
-                } // End while loop
-
-            } catch (e: CancellationException) {
-                log.info("Test execution job cancelled for input: '$textInput'.")
-                loopError = e
-                // Don't rethrow cancellation, let finally handle it
-            } catch (e: Exception) {
-                log.error("Exception during test execution loop for input: '$textInput'.", e)
-                loopError = e
-            } finally {
-                log.info("Finishing test execution job for input: '$textInput'.")
-                isTestRunning = false
-
-                // Update final state in logData if job is still active (wasn't cancelled externally)
-                // And ensure loading is false
-                if (isActive) { // Check if the flow/scope is still active
-                    currentLogData.isLoading = false
-                    if (loopError != null && loopError !is CancellationException) {
-                        currentLogData.finalStatus = TestStatus.FAILED
-                        currentLogData.errorMessage = loopError.message ?: "Test failed due to exception"
-                    } else if (loopError is CancellationException) {
-                        // If cancelled internally or externally
-                        currentLogData.finalStatus = TestStatus.STOPPED // Indicate stopped state
-                        currentLogData.errorMessage = "Test stopped"
-                    } else if (currentLogData.finalStatus == null) {
-                        currentLogData.finalStatus = TestStatus.FAILED
-                        currentLogData.errorMessage = "Test finished without clear Pass/Fail status."
-                    }
-                    // Emit the very final state
-                    trySend(currentLogData.copy())
-                    log.info("Sent final log state: ${currentLogData.finalStatus}")
-                } else {
-                    log.warn("Flow/Scope became inactive before final state could be sent.")
-                }
-                // Close the flow from the producer side upon completion or error
-                 close(loopError) // Use default close handling
-            }
-        }
-
-        // Cleanup: Cancel the job if the flow collector stops collecting
-        awaitClose {
-            log.warn("Test execution flow closing (awaitClose).")
-            isTestRunning = false // Ensure flag is reset
-            if (currentTestJob?.isActive == true) {
-                log.info("Cancelling active test job due to flow closure.")
-                currentTestJob?.cancel(CancellationException("Flow collection stopped."))
-            }
-        }
-    }.flowOn(Dispatchers.IO) // Ensure the flow setup and execution runs on IO dispatcher
 
     override fun runTestCase(testId: String, textInput: String, deviceId: String): Flow<TestExecutionLog> = channelFlow {
         val testExecutionLog = TestExecutionLog(
@@ -285,13 +107,12 @@ class TestCaseRepositoryImpl(
             var loopError: Exception? = null
             try {
                 testExecutionLog.executionResult = ExecutionResult(
-                    introduction = "Processing test: ${getTestIntro(textInput)}",
+                    introduction = getTestIntro(textInput, deviceId),
                     llmUsed = "Claude",
                     targetDeviceId = deviceId,
                     testSteps = mutableListOf()
                 )
                 trySend(testExecutionLog.copy())
-                delay(500)
 
                 do {
                     val currentStepNumber = (testExecutionLog.executionResult?.testSteps?.size ?: 0) + 1
@@ -313,7 +134,7 @@ class TestCaseRepositoryImpl(
 
                     trySend(testExecutionLog.copy())
                     log.info("Emitted step $currentStepNumber ${mcpResponse.title}. FinalStatus: ${testExecutionLog.status}\n\n")
-                    delay(500) // Optional delay between steps
+                    delay(150) // Optional delay between steps
                 } while (testExecutionLog.status == TestStatus.RUNNING && isActive)
 
             } catch (e: CancellationException) {
@@ -354,28 +175,6 @@ class TestCaseRepositoryImpl(
             }
         }
     }.flowOn(Dispatchers.IO)
-
-    override fun runSomeTest() {
-        repositoryScope.launch(Dispatchers.IO) {
-            mcpService.initializeAndStart()
-            val result = mcpService.mcpClient.processQuery("""
-                You are an AI agent assisting in automated Android UI testing. 
-                
-                First, respond with ONLY the following JSON format (with no additional text outside the JSON):
-                {
-                  "context": "Short explanation of what this action is trying to achieve",
-                  "feedback": "PASS | FAIL | CONTINUE",
-                  "resourceId": "<string | null>", 
-                  "packageName": "valid package name if it is used."
-                }
-                
-                After providing the JSON response, use the appropriate tool to perform the action.
-                
-                Task: Open LinkedIn app on my android device.
-                """.trimIndent())
-            println("\n\nrunSomeTest(): result - $result")
-        }
-    }
 
     private fun mapToActions(queryResult: List<QueryResult>): Pair<StepOutcome, List<Action>> {
         var actionFeedback = StepOutcome.CONTINUE
@@ -437,16 +236,7 @@ class TestCaseRepositoryImpl(
                 null
             }
 
-            val screenCtxJson: String = try {
-                withContext(Dispatchers.IO) { // Ensure ADB calls are off main thread
-                    ADBUtils.runAdbCommand("shell uiautomator dump /sdcard/window_dump.xml", deviceId)
-                    val screenCtxXml = ADBUtils.runAdbCommand("shell cat /sdcard/window_dump.xml", deviceId)
-                    getCleanedScreenContext(screenCtxXml) // Assumes this returns JSON string
-                }
-            } catch (e: Exception) {
-                log.error("Failed to get/clean screen context for step $stepNumber", e)
-                "{ \"error\": \"Failed to get screen context\" }" // Provide error JSON
-            }
+            val screenCtxJson: String = getScreenCtxJson(deviceId)
 
             log.info("Making MCP call for test '${testExecutionLog.userInput}', Step $stepNumber, Try ${3 - retries}")
 
@@ -455,8 +245,8 @@ class TestCaseRepositoryImpl(
             val mcpClient = mcpService.mcpClient
 
             if(mcpClient.isConnected) {
-                val systemPrompt = PromptGenerator.getSystemPrompt()
-                val userPrompt = PromptGenerator.getUserPrompt(testExecutionLog.userInput, screenCtxJson, lastMCPStep, previousStepsContext)
+                val systemPrompt = PromptGenerator.getActionSystemPrompt()
+                val userPrompt = PromptGenerator.getActionUserPrompt(testExecutionLog.userInput, screenCtxJson, lastMCPStep, previousStepsContext)
 
                 when(val mcpResult = mcpClient.processQuery(userPrompt, systemPrompt)) {
                     is ProcessResult.Error -> throw Exception("MCP processing error: ${mcpResult.exception.message}")
@@ -497,12 +287,39 @@ class TestCaseRepositoryImpl(
         }
     }
 
-    private fun getTestIntro(textInput: String): String {
+    private suspend fun getTestIntro(textInput: String, deviceId: String): String {
         return try {
-            "This is text intro"
+            val screenCtxJson = getScreenCtxJson(deviceId)
+            if (mcpService.mcpClient.isConnected) {
+                val userPrompt = PromptGenerator.getIntroductionUserPrompt(textInput, screenCtxJson)
+                val systemPrompt = PromptGenerator.getIntroductionSystemPrompt()
+                return when(val queryResult = mcpService.mcpClient.processQuery(userPrompt, systemPrompt)) {
+                    is ProcessResult.Error -> throw queryResult.exception
+                    is ProcessResult.Success -> {
+                        queryResult.queryResult[0].textResult ?: throw Exception("Unable to generate introduction")
+                    }
+                }
+            } else {
+                throw Exception("MCP Service is unavailable")
+            }
         } catch (e: Exception) {
-            "This happened in exception - $textInput"
+            log.error("getTestIntro(): Error - ${e.message}", e)
+            "Unable to generate introduction. Processing test: $textInput"
         }
+    }
+
+    private suspend fun getScreenCtxJson(deviceId: String): String {
+        val screenCtxJson: String = try {
+            withContext(Dispatchers.IO) {
+                ADBUtils.runAdbCommand("shell uiautomator dump /sdcard/window_dump.xml", deviceId)
+                val screenCtxXml = ADBUtils.runAdbCommand("shell cat /sdcard/window_dump.xml", deviceId)
+                getCleanedScreenContext(screenCtxXml)
+            }
+        } catch (e: Exception) {
+            log.error("Failed to get/clean screen context", e)
+            "{ \"error\": \"Failed to get screen context\" }" // Provide error JSON
+        }
+        return screenCtxJson
     }
 
     private fun getCleanedScreenContext(screenXml: String): String {

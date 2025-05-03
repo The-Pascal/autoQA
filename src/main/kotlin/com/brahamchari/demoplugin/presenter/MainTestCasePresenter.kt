@@ -4,6 +4,7 @@ import com.android.ddmlib.IDevice
 import com.brahamchari.demoplugin.models.*
 import com.brahamchari.demoplugin.repository.MainTestCaseView
 import com.brahamchari.demoplugin.repository.TestCaseRepository
+import com.brahamchari.demoplugin.utils.PluginNotifier
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
@@ -208,7 +209,7 @@ class MainTestCasePresenterImpl(
         } else {
             log.debug("Stop requested but no active test job found.")
             // Ensure UI is in stopped state if somehow out of sync
-            view?.updateTestStatus(TestStatus.STOPPED)
+            view.updateTestStatus(TestStatus.STOPPED)
         }
     }
 
