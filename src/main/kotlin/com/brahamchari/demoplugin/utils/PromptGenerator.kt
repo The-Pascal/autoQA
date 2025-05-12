@@ -40,6 +40,10 @@ object PromptGenerator {
         return actionSystemPromptText
     }
 
+    fun getActionSystemPromptGemini(): String {
+        return actionSystemPromptTextGemini
+    }
+
     /**
      * Generates the user prompt for a specific turn, providing the dynamic context.
      *
@@ -53,7 +57,8 @@ object PromptGenerator {
         testCase: String,
         screenContext: String,
         lastAction: String,
-        listOfPreviousSteps: String
+        listOfPreviousSteps: String,
+        model: String
     ): String {
         // Use trimIndent for clean formatting and inject variables using $
         return """
@@ -78,6 +83,80 @@ object PromptGenerator {
             Determine the next best *action JSON* OR *request necessary tool calls* OR *both* based on the rules and context provided. Respond ONLY with the specifications provided.
             """.trimIndent()
     }
+
+    private val actionSystemPromptTextGemini = """
+    You are an expert AI assistant specializing in step-by-step Android UI test automation. Your primary goal is to analyze the provided UI state and test case information to determine the single next logical action required to validate the test case.
+
+    **Core Rules:**
+    - Base your decisions STRICTLY on the provided 'Current Screen UI Context', 'Last Action Performed', 'Previous Steps Summary', and 'Test Case Goal'.
+    - Priority for decision making is - 'Test Case Goal' > 'Current Screen UI Context' > 'Last Action Performed' > 'Previous Steps Summary'
+    - It is *NOT* confirmed that the steps present in 'Previous Steps Summary' are entirely correct or have been performed correctly. So always check the screen context first before assuming anything.
+    - *DO NOT* assume the screen context, instead analyse 'Current Screen UI Context' and make next decision based on it.
+    - Determine test outcome (PASS/FAIL) ONLY based on verifiable evidence within the 'Current Screen UI Context'. Do not assume outcomes.
+    - Ensure actions interact correctly with UI elements after verifying from screen context, if not then use correct function call.
+    - Use the structured function calling feature when you need to interact with android device. Only invoke **one** function per turn.
+
+    **Decision Process & Function Calling:**
+    1. Analyze the current context and history against the test case goal.
+    2. Determine if the next required UI interaction (e.g., click, type) can be confidently identified AND if the test case outcome (PASS/FAIL/CONTINUE) can be determined based *ONLY* on the current information provided.
+    3. When you want to do UI interaction use function calling invoked via the **structured function calling feature**.
+    4. **If YES, and no function call is needed:** Respond *only* with the Action JSON (see format below). Set 'feedback' to PASS or FAIL only if the outcome is verifiably confirmed by the current UI Context. Otherwise, set 'feedback' to CONTINUE.
+    5. **If NO (e.g., you need to check an element's specific state, verify text, get device properties, or perform a non-UI check requiring a tool):** Respond with **BOTH**:
+        a) The **Action JSON** (see format below), ensuring the 'context' field explains *why* the function call is necessary.
+        b) The required function invoked via the **structured function calling feature**.
+        
+    *Prevention:*
+    - Prevent getting stuck in same loop, or doing same action repeatedly without any outcome.
+
+    **Output Format Constraint:**
+    - If no function calling is required then respond **ONLY** with the **Action JSON** structure below.
+    - If invoking a tool/function is necessary, respond with **BOTH**:
+        1. The **Action JSON** explaining the rationale for the function call.
+        2. The appropriate **structured function call**.
+    - Do NOT include ANY other text, explanations, apologies, or markdown formatting like ```json ``` around your JSON output or the function call arguments.
+
+    **Required Action JSON Output Format:**
+    {
+        "context": "string - Concise explanation (<50 words) of the intended action OR the rationale for the required function call.",
+        "feedback": "string - MUST be one of: PASS, FAIL, CONTINUE.",
+        "resourceId": "string | null - The resource-id of the primary UI element for the action, if applicable (can be null if action is a function call)."
+    }
+    """.trimIndent()
+
+    /**
+     * Generates the user prompt content dynamically.
+     * Instructs the AI to provide Action JSON and potentially a structured function call.
+     */
+    fun getActionUserPromptGemini(
+        testCase: String,
+        screenContext: String,
+        lastAction: String,
+        listOfPreviousSteps: String,
+    ): String {
+        // Use trimIndent for clean formatting and inject variables using $
+        return """
+        Test Case Goal:
+        $testCase
+
+        Current Screen UI Context:
+        ```json
+        $screenContext
+        ```
+
+        Last Action Performed:
+        ```json
+        $lastAction
+        ```
+
+        Summary of Previous Steps:
+        ```json
+        $listOfPreviousSteps
+        ```
+
+        Determine the next best action based on the rules and context provided. Provide the **Action JSON** explaining your rationale. If invoking a tool/function is necessary, ALSO include the appropriate **structured function call**.
+        """.trimIndent()
+    }
+
 
     private val introductionSystemPromptText = """
         You are an AI assistant helping with Android UI test automation planning. Your task is to analyze a user-provided test case description and the initial UI context of the app's screen.

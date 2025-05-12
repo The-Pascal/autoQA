@@ -50,8 +50,8 @@ class McpService(
         AndroidMCPClient(
             host = serverHost,
             port = serverPort, // Use the same derived port
-            anthropicClient = anthropicService.anthropicClient,
-            parentScope = this // Pass this service's scope
+            parentScope = this, // Pass this service's scope,
+            project = project
         )
     }
     val mcpClient: MCPClient by _mcpClient

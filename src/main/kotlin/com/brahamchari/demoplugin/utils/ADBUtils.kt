@@ -60,20 +60,6 @@ object ADBUtils {
         configDir.absolutePath
     }
 
-    fun getAdbDevices(): List<Pair<String, String>> {
-        return try {
-            val output = runAdbCommand("devices -l")
-
-            // Parse device list output
-            output.lines()
-                    .drop(1) // Skip header
-                    .filter { it.contains("device ") } // Ensure it's an actual device
-                    .mapNotNull { parseAdbDeviceLine(it) }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
     @Throws(RuntimeException::class)
     fun runAdbCommand(command: String, deviceId: String? = null): String {
         val adbPath = getAdbPath() // Function to get ADB path dynamically

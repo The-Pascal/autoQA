@@ -1,6 +1,7 @@
 package com.brahamchari.demoplugin.tabs
 
 import com.android.ddmlib.IDevice
+import com.brahamchari.demoplugin.MY_TOOL_WINDOW_ID
 import com.brahamchari.demoplugin.custom.RoundedPanel
 import com.brahamchari.demoplugin.di.TestCaseInjector
 import com.brahamchari.demoplugin.models.*
@@ -22,14 +23,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.*
 import com.intellij.ui.components.*
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.WrapLayout
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import java.awt.event.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -37,23 +40,27 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
+import kotlin.random.Random
 
 
 class TestToolWindowContent(
     private val project: Project,
     private val disposable: Disposable,
-    private val testCaseInjector: TestCaseInjector
-) : MainTestCaseView, JPanel(BorderLayout()) {
+    private val testCaseInjector: TestCaseInjector,
+) : MainTestCaseView, JPanel(BorderLayout()), SavedTestActions {
 
     private val log = Logger.getInstance(TestToolWindowContent::class.java)
 
     // --- UI Components ---
     private val adbDeviceModel = CollectionComboBoxModel<IDevice>()
     private val devicesComboBox = ComboBox(adbDeviceModel)
+    private val aiModels = CollectionComboBoxModel<AiModelData>()
+    private val aiModelComboBox = ComboBox(aiModels)
     private val statusLabel = JBLabel("Initializing...", AllIcons.General.Information, SwingConstants.LEFT)
 
     // Map Log ID to a Pair: the outer bot panel shell and its inner content panel
     private val botResponsePanels = ConcurrentHashMap<String, Pair<JPanel, JPanel>>()
+    private lateinit var outerChatLogPanel: JPanel // Initialized in createJBListPanel
     private lateinit var chatLogPanel: JPanel // Initialized in createJBListPanel
     private lateinit var chatScrollPane: JBScrollPane // Initialized in createJBListPanel
 
@@ -62,12 +69,14 @@ class TestToolWindowContent(
 
     private lateinit var runStopButton: JButton
 
+    private var isIntroVisible = true
+
     // Constants for resizing behaviour
     private val MIN_INPUT_AREA_ROWS = 3
     private val MAX_INPUT_AREA_ROWS = 6 // Max height before scrolling starts
 
     // --- Presenter and State ---
-    private val presenter: MainTestCasePresenter = testCaseInjector.getTestCasePresenter(this, project, disposable)
+    val presenter: MainTestCasePresenter = testCaseInjector.getTestCasePresenter(this, project, disposable)
 
     init {
         border = JBUI.Borders.empty()
@@ -112,10 +121,6 @@ class TestToolWindowContent(
             override fun actionPerformed(e: AnActionEvent) {
                 presenter.onRefreshDevicesClicked()
             }
-            // Optional: Update based on whether ADB is available?
-            // override fun update(e: AnActionEvent) {
-            //    e.presentation.isEnabled = ...
-            // }
         }
 
         val actionGroup = DefaultActionGroup(refreshAction)
@@ -141,10 +146,9 @@ class TestToolWindowContent(
         return headerPanel
     }
 
-
     /** Creates the main scrollable panel that will hold the chat/log messages. */
     private fun createChatLogPanel(): JPanel {
-        val mainPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+        outerChatLogPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
             border = JBUI.Borders.empty()
         }
         chatLogPanel = JBPanel<JBPanel<*>>().apply {
@@ -156,8 +160,29 @@ class TestToolWindowContent(
             horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             border = JBUI.Borders.empty()
         }
-        mainPanel.add(chatScrollPane, BorderLayout.CENTER)
-        return mainPanel
+
+        val introLabelsList = listOf(
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Test Smarter, Not Harder.</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Quality on Autopilot.</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Your Test Automation Genie.<br>Ask Away!</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Making Bugs Nervous Since... Well, Now!</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Your Friendly Neighborhood AI<br>for Super-Powered QA.</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Less Manual, More Magic!</div></html>",
+            "<html><div style='text-align: center;'><font color='#9966CC'>Auto</font><font color='#DA70D6'>QA</font><br>Describe Your Test.<br>Watch the Automation Unfold.</div></html>"
+        )
+        val introLabelIndex = Random.nextInt(0, (introLabelsList.size - 1))
+        val introLabel = JBLabel(introLabelsList[introLabelIndex]).apply {
+            font = JBFont.h0()
+            horizontalAlignment = SwingConstants.CENTER
+            verticalAlignment = SwingConstants.CENTER
+            foreground = UIUtil.getLabelDisabledForeground() // Subtle color
+        }
+        val introTextDisplayPanel = JBPanel<JBPanel<*>>(GridBagLayout()).apply {
+            add(introLabel, GridBagConstraints()) // Default GBC centers the component
+        }
+
+        outerChatLogPanel.add(introTextDisplayPanel, BorderLayout.CENTER)
+        return outerChatLogPanel
     }
 
     /** Creates the main bottom panel containing the input area and status bar. */
@@ -186,7 +211,7 @@ class TestToolWindowContent(
             rows = MIN_INPUT_AREA_ROWS
             lineWrap = true
             wrapStyleWord = true
-            emptyText.text = "What would you like to do?"
+            emptyText.text = "What do you want to test today?"
             toolTipText = "Enter the natural language test case to execute"
             margin = JBUI.insets(5)
             minimumSize = Dimension(JBUI.scale(100), calculateScrollPaneSize(MIN_INPUT_AREA_ROWS).height)
@@ -221,11 +246,69 @@ class TestToolWindowContent(
 
         containerPanel.add(inputScrollPane, BorderLayout.CENTER)
 
-        // --- Bottom Control Panel (Icon + Button, aligned SOUTH) ---
-        val controlsPanel = JBPanel<JBPanel<*>>(BorderLayout(JBUI.scale(5), 0))
-        val iconLabel = JBLabel(AllIcons.Actions.AddFile).apply { border = JBUI.Borders.emptyBottom(3) }
-        controlsPanel.add(iconLabel, BorderLayout.WEST)
-        runStopButton = JButton("Send")
+        val controlsPanel = JBPanel<JBPanel<*>>(BorderLayout()) // Main panel for bottom bar
+        val leftGroupPanel = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, JBUI.scale(0), 0))
+
+        aiModelComboBox.apply {
+            toolTipText = "Select AI Model"
+            prototypeDisplayValue = AiModelData("Gemini-1.5-pro XXXX", "Gemini", AiModelCompany.GEMINI, true)
+            isOpaque = false
+            (editor.editorComponent as? JComponent)?.isOpaque = false
+            addFocusListener(object : FocusListener {
+                override fun focusGained(e: FocusEvent?) {
+                    presenter.refreshAvailableModels()
+                }
+
+                override fun focusLost(e: FocusEvent?) {
+                    presenter.refreshAvailableModels()
+                }
+            })
+            renderer = object : SimpleListCellRenderer<AiModelData>() {
+                override fun customize(
+                    list: JList<out AiModelData>,
+                    value: AiModelData?,
+                    index: Int,
+                    selected: Boolean,
+                    hasFocus: Boolean
+                ) {
+                    if (value != null) {
+                        text = value.displayName
+                        isEnabled = value.enabled
+                        toolTipText = if (!value.enabled) { // Set tooltip for disabled items
+                            "Add ${value.company.name} API key in Plugin Settings to use this model."
+                        } else {
+                            "Select ${value.displayName}" // Default tooltip for enabled items
+                        }
+                    } else {
+                        text = "Add model key in Settings"
+                        toolTipText = "Configure API keys in plugin settings to see available models."
+                    }
+                }
+            }
+
+            addItemListener { e ->
+                if (e.stateChange == ItemEvent.SELECTED) {
+                    val newlySelectedItem = e.item as? AiModelData
+                    if (newlySelectedItem != null) {
+                        if (newlySelectedItem.enabled) {
+                            presenter.onAiModelSelected(newlySelectedItem)
+                            println("Selected AI Model: $newlySelectedItem")
+                        } else {
+                            println("Attempted to select disabled model: ${newlySelectedItem.displayName}. Reverting.")
+                            val lastValidSelectedItem = presenter.selectedModel
+                            if (this.selectedItem != lastValidSelectedItem) {
+                                this.selectedItem = lastValidSelectedItem
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        leftGroupPanel.add(aiModelComboBox)
+        controlsPanel.add(leftGroupPanel, BorderLayout.WEST)
+
+        runStopButton = JButton("Send") // Assign to your class member
         runStopButton.toolTipText = "Send the command/start the test"
         controlsPanel.add(runStopButton, BorderLayout.EAST)
         containerPanel.add(controlsPanel, BorderLayout.SOUTH)
@@ -409,6 +492,12 @@ class TestToolWindowContent(
             // Add vertical spacing *before* the timestamp if needed
             if (chatLogPanel.componentCount > 0) {
                 chatLogPanel.add(Box.createVerticalStrut(JBUI.scale(8))) // Space before entire user message block
+            }
+
+            if (isIntroVisible) {
+                isIntroVisible = false
+                outerChatLogPanel.removeAll()
+                outerChatLogPanel.add(chatScrollPane)
             }
 
             val userChatBubblePanel = getUserChatPanel(text)
@@ -664,6 +753,33 @@ class TestToolWindowContent(
         }, ModalityState.any())
     }
 
+    override fun updateAiModels(models: List<AiModelData>) {
+        ApplicationManager.getApplication().invokeLater({
+            if (Disposer.isDisposed(disposable)) return@invokeLater
+            log.debug("View models with ${models.size}")
+            aiModels.replaceAll(models)
+
+            val selectedModelBeforeUpdate = aiModelComboBox.selectedItem as? AiModelData
+            val selectedModel = selectedModelBeforeUpdate?.displayName
+
+            // Attempt to re-select the previously selected device
+            val modelToReselect = models.find { it.displayName == selectedModel }
+
+            // Set the selected item in the ComboBox
+            val newSelectedItem = when {
+                modelToReselect != null -> modelToReselect
+                models.isNotEmpty() -> models.first { it.enabled }
+                else -> null
+            }
+            // Setting selectedItem might trigger the action listener; presenter should handle potential re-entry
+            aiModelComboBox.selectedItem = newSelectedItem
+
+            // Enable/disable ComboBox based on whether devices are present
+            aiModelComboBox.isEnabled = models.isNotEmpty()
+            aiModelComboBox.repaint() // Force repaint after model/selection change
+        }, ModalityState.any())
+    }
+
     override fun getSelectedDevice(): IDevice? {
         return devicesComboBox.selectedItem as? IDevice
     }
@@ -717,22 +833,19 @@ class TestToolWindowContent(
                 alignmentX = Component.LEFT_ALIGNMENT
             }
             contentPanel.add(introArea)
-            contentPanel.add(Box.createVerticalStrut(JBUI.scale(10)))
+            contentPanel.add(Box.createVerticalStrut(JBUI.scale(16)))
         }
 
         // 2. Add Steps
         logData?.executionResult?.testSteps?.forEach { step ->
             contentPanel.add(createStepPanel(step))
-            contentPanel.add(Box.createVerticalStrut(JBUI.scale(10))) // Spacing between steps
+            contentPanel.add(Box.createVerticalStrut(JBUI.scale(16))) // Spacing between steps
         }
 
         // 3. Add Loading Indicator OR Final Status
         val isLoading = (logData == null || logData.status == TestStatus.RUNNING)
         addOrUpdateLoadingIndicator(contentPanel, isLoading)
         addOrUpdateFinalStatus(contentPanel, logData?.status, logData?.error?.message, logData)
-
-        // contentPanel.revalidate() // Called by caller (updateBotResponseLog)
-        // contentPanel.repaint()
     }
 
     /** Creates the panel for a single step within the bot response. */
@@ -838,8 +951,7 @@ class TestToolWindowContent(
         JBColor.namedColor("Label.successForeground", JBColor(0x4CAF50, 0x10A37F)) // Default Greenish
     private val errorColor =
         JBColor.namedColor("Label.errorForeground", JBColor(0xD50000, 0xEB5757))      // Default Reddish
-    private val borderColor =
-        JBColor.namedColor("Label.borderColor", JBColor(0x52565A, 0x52565A))
+    private val borderColor = JBColor(0x646464, 0x646464)
     private val stoppedColor = JBUI.CurrentTheme.Label.foreground() // Default text color for stopped/neutral
 
     /**
@@ -863,7 +975,7 @@ class TestToolWindowContent(
         }
 
         // --- 2. Add new status panel IF status is final ---
-        if (status != null && status != TestStatus.RUNNING) {
+        if (status != null && status != TestStatus.RUNNING && logData != null) {
 
             // --- 3. Remove loading indicator IF PRESENT ---
             findComponentByType(contentPanel, JPanel::class.java) { it.name == "loadingPanel" }?.let {
@@ -910,27 +1022,31 @@ class TestToolWindowContent(
                 isOpaque = false
             }
 
-            // --- 8. Create Action Buttons ---
-            // !! IMPORTANT: You MUST implement corresponding methods in your Presenter !!
-            // !!            and update the action listeners below.                   !!
-
-            // Suggestion: Get the logId associated with this contentPanel if needed by presenter actions
-            // val logId = (contentPanel.parent as? JPanel)?.getClientProperty("logId") as? String ?: ""
-
             val rerunWithAiButton = JButton("Re-run with AI", MyPluginIcons.AIStars).apply { // Icon Suggestion
                 toolTipText = "Re-run the test case using AI analysis"
                 background = botPanelBubbleColor
-                // addActionListener { presenter.rerunTest(logId, true) } // Connect to Presenter
+                 addActionListener { presenter.runTestCase(logData.userInput) }
             }
             val rerunWithoutAiButton = JButton("Re-run without AI", MyPluginIcons.ReRun).apply {
                 toolTipText = "Re-run the test case using previous steps (if applicable)"
                 background = botPanelBubbleColor
-                // addActionListener { presenter.rerunTest(logId, false) } // Connect to Presenter
+                addActionListener { presenter.runTestCase(logData.userInput, logData) }
             }
-            val saveButton = JButton("Save", MyPluginIcons.Bookmark).apply {
-                toolTipText = "Save test case results"
+            val saveButton = JButton().apply {
+                text = if(logData.isSaved) "Saved" else "Save"
+                icon = if(logData.isSaved) AllIcons.Actions.Commit else MyPluginIcons.Bookmark
+                toolTipText = if (logData.isSaved) "Test results already saved" else "Save test case results to project"
                 background = botPanelBubbleColor
-                // addActionListener { presenter.saveTestResult(logId) } // Connect to Presenter
+                addActionListener {
+                    if(logData.isSaved) {
+                        setStatus("Test is already saved", AllIcons.General.Information)
+                    } else {
+                        text = "Saving"
+                        icon = AnimatedIcon.Default()
+                        this.isEnabled = false
+                        presenter.saveTestLogExecution(logData)
+                    }
+                }
             }
 
             // Add buttons to the actions panel
@@ -1055,5 +1171,27 @@ class TestToolWindowContent(
         predicate: (Component) -> Boolean = { true }
     ): List<Component> {
         return container.components.filter { type.isAssignableFrom(it.javaClass) && predicate(it) }
+    }
+
+    private fun switchToSavedTestsTab() {
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(MY_TOOL_WINDOW_ID) // Use your ID
+        toolWindow?.contentManager?.contents?.find { it.tabName == "Saved Tests" }?.let { content ->
+            toolWindow.contentManager.setSelectedContent(content, true) // Select and focus
+            toolWindow.activate(null, true, true) // Activate the tool window and focus content
+        } ?: log.warn("Could not find 'Saved Tests' tab.")
+    }
+
+    override fun onReRunTestRequest(userInput: String, originalLog: TestExecutionLog?, activateTestTab: Boolean) {
+        log.info("Re-run request received. Input: '$userInput', OriginalLog ID: ${originalLog?.id}")
+        if (activateTestTab) {
+            // Activate this "Test" tab
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(MY_TOOL_WINDOW_ID)
+            toolWindow?.contentManager?.contents?.find { it.component == this }?.let { myContent ->
+                toolWindow.contentManager.setSelectedContent(myContent, true)
+                toolWindow.activate(null, true, true) // Ensure this tab is focused
+            } ?: log.warn("Could not find 'Test' tab to activate.")
+        }
+        // Call the presenter to run the test case
+        presenter.runTestCase(userInput, originalLog)
     }
 }

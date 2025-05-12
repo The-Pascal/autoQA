@@ -43,6 +43,9 @@
 
         <projectService serviceImplementation="com.brahamchari.demoplugin.MyProjectService"/>
         <projectService serviceImplementation="com.brahamchari.demoplugin.services.SettingService" />
+        <projectService serviceImplementation="com.brahamchari.demoplugin.services.AnthropicService" />
+        <projectService serviceImplementation="com.brahamchari.demoplugin.services.GeminiService" />
+        <applicationService serviceImplementation="com.brahamchari.demoplugin.services.TestLogPersistenceServiceImpl" />
 
     </extensions>
     <actions>

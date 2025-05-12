@@ -10,6 +10,7 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    google()
 }
 
 // Configure Gradle IntelliJ Plugin
@@ -39,7 +40,7 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:${retrofitVersion}")
     implementation("com.squareup.retrofit2:converter-gson:${retrofitVersion}")
 
-    implementation("com.google.genai:google-genai:0.1.0") {
+    implementation("com.google.genai:google-genai:0.6.1") {
         exclude(group = "com.google.guava", module = "guava") // <-- ADD THIS EXCLUSION
     }
     implementation(project(":mcp-server")) {

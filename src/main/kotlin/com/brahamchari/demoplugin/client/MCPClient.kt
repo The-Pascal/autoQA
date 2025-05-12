@@ -6,19 +6,29 @@ import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
 import com.anthropic.models.messages.Model
 import com.anthropic.models.messages.ToolUnion
+import com.brahamchari.demoplugin.models.AiModelCompany
+import com.brahamchari.demoplugin.models.AiModelData
+import com.brahamchari.demoplugin.services.AnthropicService
+import com.brahamchari.demoplugin.services.GeminiService
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.google.genai.types.*
+import com.intellij.openapi.project.Project
 import io.ktor.client.*
 import io.ktor.client.engine.cio.* // Or another engine like OkHttp
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.websocket.*
 import io.modelcontextprotocol.kotlin.sdk.* // Import core SDK classes (Client, JSONRPCMessage etc)
+import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.WebSocketClientTransport
 import io.modelcontextprotocol.kotlin.sdk.shared.Transport
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.*
+import org.jetbrains.kotlin.idea.gradleTooling.get
+import java.util.*
 import kotlin.coroutines.CoroutineContext
+import kotlin.jvm.optionals.getOrDefault
 import kotlin.jvm.optionals.getOrNull
 import kotlin.time.Duration.Companion.seconds
 
@@ -30,15 +40,21 @@ interface MCPClient {
 
     fun shutdown()
 
-    suspend fun processQuery(userPrompt: String, systemPrompt: String? = null): ProcessResult
+    suspend fun processQuery(
+        userPrompt: String,
+        systemPrompt: String? = null,
+        model: AiModelData
+    ): ProcessResult
+
+    suspend fun callTool(toolName: String, toolArguments: Map<String, Any?>): Result<String>
 }
 
 class AndroidMCPClient(
-    private val anthropicClient: AnthropicClient,
     private val host: String = "localhost", // Default to localhost
     private val port: Int = 5000,           // Default to the server's default port,
     // Inject scope or create one. Creating one here for simplicity.
-    parentScope: CoroutineScope? = null
+    parentScope: CoroutineScope? = null,
+    private val project: Project
 ) : MCPClient, CoroutineScope {
 
     // Derive URL from host and port
@@ -81,10 +97,14 @@ class AndroidMCPClient(
 
     private var tools: List<Tool>? = null
     private var anthropicTools: List<ToolUnion>? = null
+    private var geminiTools: List<FunctionDeclaration>? = null
 
     private val messageParamsBuilder: MessageCreateParams.Builder = MessageCreateParams.builder()
-        .model(Model.CLAUDE_3_5_SONNET_20241022)
         .maxTokens(1024)
+
+    private val geminiService by lazy { GeminiService.getInstance(project) }
+
+    private val anthropicService by lazy { AnthropicService.getInstance(project) }
 
     @Volatile
     override var isConnected: Boolean = false
@@ -160,8 +180,34 @@ class AndroidMCPClient(
                     )
                 }
 
+                geminiTools = tools?.mapNotNull { tool ->
+                    val properties: MutableMap<String, Schema> = mutableMapOf()
+                    tool.inputSchema.properties.forEach { property ->
+                        val param = extractParameterSchemaDetails(property.value)
+                        properties[property.key] = Schema.builder().apply {
+                            param.first?.let { this.type(it) }
+                            param.second?.let { this.description(it) }
+                        }.build()
+                    }
+
+                    val parameters = Schema.builder().apply {
+                        this.type(tool.inputSchema.type)
+                        tool.inputSchema.required?.let {
+                            this.required(it)
+                        }
+                        this.properties(properties)
+                    }.build()
+
+                    FunctionDeclaration.builder()
+                        .name(tool.name)
+                        .description(tool.description)
+                        .parameters(parameters)
+                        .build()
+                }
+
                 println("Tools - $tools\n\n\n\n")
                 println("Anthropic tools - $anthropicTools\n\n\n\n")
+                println("Gemini tools - $geminiTools\n\n")
 
                 // --- IMPORTANT ---
                 // The `connect` call above likely returns *before* the WebSocket handshake
@@ -190,11 +236,22 @@ class AndroidMCPClient(
         // connectionJob?.join()
     }
 
-    override suspend fun processQuery(userPrompt: String, systemPrompt: String?): ProcessResult {
+    override suspend fun processQuery(userPrompt: String, systemPrompt: String?, model: AiModelData): ProcessResult {
         if (!isConnected && mcpClientLogic == null) {
             return ProcessResult.Error(IllegalStateException("MCP Client not initialized. Call connect() first."))
         }
 
+        return when(model.company) {
+            AiModelCompany.GEMINI -> processQueryUsingGemini(userPrompt, systemPrompt, model)
+            AiModelCompany.ANTHROPIC -> processQueryUsingAnthropic(userPrompt, systemPrompt, model)
+        }
+    }
+
+    private suspend fun processQueryUsingAnthropic(
+        userPrompt: String,
+        systemPrompt: String?,
+        model: AiModelData
+    ): ProcessResult {
         // Create an initial message with a user's query
         val messages = mutableListOf(
             MessageParam.builder()
@@ -205,6 +262,7 @@ class AndroidMCPClient(
 
         val messageRequest = messageParamsBuilder.apply {
             systemPrompt?.let { this.system(it) }
+            model(model.modelName)
             messages(messages)
             tools(anthropicTools!!)
         }.build()
@@ -215,6 +273,8 @@ class AndroidMCPClient(
         println("Message request - $messageRequest\n\n")
 
         return try {
+            val anthropicClient = anthropicService.getAnthropicClient()
+                ?: throw IllegalStateException("Anthropic client is null.")
             val response = withContext(Dispatchers.IO) {
                 anthropicClient.messages().create(messageRequest)
             }
@@ -231,7 +291,8 @@ class AndroidMCPClient(
                     content.isToolUse() -> {
                         val toolName = content.toolUse().get().name()
                         val toolArgs: Map<String, JsonValue>? =
-                            content.toolUse().get()._input().convert(object : TypeReference<Map<String, JsonValue>>() {})
+                            content.toolUse().get()._input()
+                                .convert(object : TypeReference<Map<String, JsonValue>>() {})
 
                         // Call the tool with provided arguments
                         val result = mcpClientLogic?.callTool(
@@ -242,7 +303,9 @@ class AndroidMCPClient(
                         queryResultList.add(QueryResult(toolCallInfo = ToolCallInfo(
                             toolName = toolName,
                             inputArgumentsJson = toolArgs ?: emptyMap(),
-                            toolCallResult = result?.content?.joinToString("\n") { (it as TextContent).text ?: "" }
+                            toolCallResult = result?.content?.joinToString("\n") {
+                                (it as TextContent).text ?: ""
+                            }
                                 ?: "No result available"
                         )))
                     }
@@ -253,6 +316,77 @@ class AndroidMCPClient(
             ProcessResult.Success(queryResult = queryResultList)
         } catch (e: Exception) {
             ProcessResult.Error(e)
+        }
+    }
+
+    private suspend fun processQueryUsingGemini(
+        userPrompt: String,
+        systemPrompt: String?,
+        model: AiModelData
+    ): ProcessResult {
+        return try {
+            val systemInstruction = Content.fromParts(Part.fromText(systemPrompt ?: ""))
+            val tools = listOf(com.google.genai.types.Tool.builder().functionDeclarations(geminiTools).build())
+            val config = GenerateContentConfig.builder()
+                .tools(tools)
+                .systemInstruction(systemInstruction)
+                .build()
+
+            val geminiClient = geminiService.getGeminiClient()
+                ?: throw IllegalStateException("Gemini client is null.")
+
+            val response = withContext(Dispatchers.IO) {
+                geminiClient.models.generateContent(model.modelName, userPrompt, config)
+            }
+            println("Response received - $response\n\n")
+
+            val queryResultList = mutableListOf<QueryResult>()
+            println("================================================================\n")
+
+            response.parts()?.forEach { part ->
+                part.text().getOrNull()?.let {
+                    queryResultList.add(QueryResult(textResult = removeJsonMarkdownFences(it)))
+                    println("Text - ${removeJsonMarkdownFences(it)}")
+                }
+                part.functionCall().getOrNull()?.let {function ->
+                    function.name().getOrNull()?.let { toolName ->
+                        val toolArgs = function.args().getOrDefault(emptyMap())
+                        val result = mcpClientLogic?.callTool(toolName, toolArgs)
+
+                        println("Tool name - $toolName ; Args - $toolArgs")
+
+                        queryResultList.add(QueryResult(toolCallInfo = ToolCallInfo(
+                            toolName = toolName,
+                            inputArgumentsJson = toolArgs,
+                            toolCallResult = result?.content?.joinToString("\n") {
+                                (it as TextContent).text ?: ""
+                            } ?: "No result available"
+                        )))
+                    }
+                }
+            }
+
+            println("================================================================================\n\n")
+
+            println("\nFinal result - $queryResultList\n")
+            ProcessResult.Success(queryResult = queryResultList)
+        } catch (e: Exception) {
+            ProcessResult.Error(e)
+        }
+    }
+
+    override suspend fun callTool(toolName: String, toolArguments: Map<String, Any?>): Result<String> {
+        if (!isConnected && mcpClientLogic == null) {
+            return Result.failure(IllegalStateException("MCP Client not initialized. Call connect() first."))
+        }
+
+        return try {
+            val result = mcpClientLogic?.callTool(toolName, toolArguments)
+            val resultText = result?.content?.joinToString("\n") { (it as TextContent).text ?: "" }
+                ?: "No result available"
+            Result.success(resultText)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -312,4 +446,33 @@ private fun JsonObject.toJsonValue(): JsonValue {
     val mapper = ObjectMapper()
     val node = mapper.readTree(this.toString())
     return JsonValue.fromJsonNode(node)
+}
+
+private fun extractParameterSchemaDetails(schemaElement: JsonElement?): Pair<String?, String?> {
+    if (schemaElement !is JsonObject) return null to null
+    val type = schemaElement["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
+    val desc = schemaElement["description"]?.jsonPrimitive?.contentOrNull
+    return type to desc
+}
+
+private fun removeJsonMarkdownFences(response: String): String {
+    // Trim leading/trailing whitespace for reliable fence checking
+    val trimmedResponse = response.trim()
+
+    val jsonPrefix = "```json"
+    val jsonSuffix = "```"
+
+    // Check if the trimmed string starts with ```json and ends with ```
+    if (trimmedResponse.startsWith(jsonPrefix) && trimmedResponse.endsWith(jsonSuffix)) {
+        // Remove the prefix and suffix
+        val content = trimmedResponse
+            .removePrefix(jsonPrefix)
+            .removeSuffix(jsonSuffix)
+
+        // Trim any whitespace that might have been just inside the fences
+        return content.trim()
+    } else {
+        // Fences not found as expected, return the original string
+        return response
+    }
 }

@@ -1,14 +1,20 @@
 package com.brahamchari.demoplugin.presenter
 
 import com.android.ddmlib.IDevice
+import com.anthropic.models.messages.Model
 import com.brahamchari.demoplugin.models.*
 import com.brahamchari.demoplugin.repository.MainTestCaseView
 import com.brahamchari.demoplugin.repository.TestCaseRepository
+import com.brahamchari.demoplugin.services.AnthropicService
+import com.brahamchari.demoplugin.services.GeminiService
+import com.brahamchari.demoplugin.tabs.SavedTestsView
 import com.brahamchari.demoplugin.utils.PluginNotifier
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.AnimatedIcon
 import kotlinx.coroutines.*
@@ -18,18 +24,34 @@ import kotlin.coroutines.CoroutineContext
 
 interface MainTestCasePresenter {
 
+    val savedTestExecutionLogsMap: Map<String, TestExecutionLog>
+
     fun loadPreviousTestCase(): List<TestCase>
 
-    fun runTestCase(inputText: String)
+    fun runTestCase(inputText: String, originalTestLog: TestExecutionLog? = null)
     fun stopRunningTest()
 
     fun onRefreshDevicesClicked()
     fun onDeviceSelected(device: IDevice?)
+
+    fun saveTestLogExecution(logData: TestExecutionLog)
+
+    fun refreshAvailableModels()
+
+    fun loadTestLogs()
+    fun onAiModelSelected(selectedModel: AiModelData)
+    val selectedModel: AiModelData?
+
+    fun registerSavedTestsView(view: SavedTestsView)
+    fun unregisterSavedTestsView(view: SavedTestsView)
+    fun loadTestLogsForSavedTestsTab()
+
 }
 
 class MainTestCasePresenterImpl(
     private val view: MainTestCaseView,
     private val testCaseRepository: TestCaseRepository,
+    private val project: Project,
     parentDisposable: Disposable
 ) : MainTestCasePresenter, CoroutineScope, Disposable {
 
@@ -47,8 +69,20 @@ class MainTestCasePresenterImpl(
     // Keep track of the currently active test execution Job
     private var currentTestJob: Job? = null
 
+    private var _selectedModel: AiModelData? = null
+
+    private var savedTestsView: SavedTestsView? = null
+    override val selectedModel: AiModelData?
+        get() = _selectedModel
+
+    private val _savedTestExecutionLogs = mutableMapOf<String, TestExecutionLog>()
+    override val savedTestExecutionLogsMap: Map<String, TestExecutionLog>
+        get() = _savedTestExecutionLogs
+
     init {
         observeAdbDevices()
+
+        refreshAvailableModels()
 
         Disposer.register(parentDisposable, this)
     }
@@ -57,14 +91,74 @@ class MainTestCasePresenterImpl(
         TODO("Not yet implemented")
     }
 
-    override fun runTestCase(inputText: String) {
+    override fun registerSavedTestsView(view: SavedTestsView) {
+        this.savedTestsView = view
+        log.info("SavedTestsView registered.")
+    }
+
+    override fun unregisterSavedTestsView(view: SavedTestsView) {
+        if (this.savedTestsView == view) {
+            this.savedTestsView = null
+            log.info("SavedTestsView unregistered.")
+        }
+    }
+
+    override fun loadTestLogsForSavedTestsTab() {
+        log.info("Presenter: Loading test logs for Saved Tests Tab.")
+        if(savedTestsView == null) log.error("savedTestsView is null")
+        savedTestsView?.showSavedTestsLoading(true)
+
+        launch { // Launch on presenterScope
+            val result: Result<List<TestExecutionLog>> = try {
+                withContext(Dispatchers.IO) {
+                    testCaseRepository.loadExecutionLogs()
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+
+            if (!isActive) {
+                log.info("Presenter scope no longer active after loading logs.")
+                return@launch
+            }
+
+            result.fold(
+                onSuccess = { loadedLogs ->
+                    log.info("Successfully loaded ${loadedLogs.size} logs from repository.")
+                    val savedTestsForView = loadedLogs.map { logData ->
+                        logData
+                    }.sortedByDescending { it.startTime }
+
+                    savedTestsView?.showSavedTestsLoading(false)
+                    savedTestsView?.displaySavedTests(savedTestsForView)
+
+                    _savedTestExecutionLogs.clear()
+                    loadedLogs.forEach { _savedTestExecutionLogs[it.id] = it } // Update presenter's internal state
+                    log.info("Passing ${savedTestsForView.size} mapped logs to the view.")
+                },
+                onFailure = { e ->
+                    log.error("Failed to load test results", e)
+                    savedTestsView?.showSavedTestsLoading(false)
+                    savedTestsView?.displaySavedTestsError("Failed to load saved tests: ${e.message}")
+                }
+            )
+        }
+    }
+
+    override fun runTestCase(inputText: String, originalTestLog: TestExecutionLog?) {
         // Cancel any previous test run first
         stopRunningTestInternal("Starting new test case")
 
         val targetDeviceId = selectedDeviceSerial
+        val targetModel = selectedModel
         if (targetDeviceId == null) {
             log.warn("Run test ignored: No device selected.")
             view.setStatus("Please select a device first.", AllIcons.General.Warning)
+            return
+        }
+        if (targetModel == null) {
+            log.warn("Run test ignored: No model selected.")
+            view.setStatus("Please select a model first.", AllIcons.General.Warning)
             return
         }
         if (inputText.isBlank()) {
@@ -88,8 +182,11 @@ class MainTestCasePresenterImpl(
         // Launch the test execution flow collection
         currentTestJob = launch { // Use presenterScope (this.launch)
             try {
-                // Assume repository method takes text & deviceId, returns Flow<TestExecutionLog>
-                testCaseRepository.runTestCase(logId, inputText, targetDeviceId)
+                val testCaseRunFlow =
+                    if (originalTestLog == null) testCaseRepository.runTestCase(logId, inputText, targetDeviceId, targetModel)
+                    else testCaseRepository.replayTestSteps(logId, targetDeviceId, originalTestLog, targetModel)
+
+                testCaseRunFlow
                     .onStart { log.debug("Test execution flow started for $logId") }
                     .onCompletion { cause ->
                         if (!currentCoroutineContext().isActive) return@onCompletion // Check scope/view validity
@@ -215,6 +312,7 @@ class MainTestCasePresenterImpl(
 
     override fun dispose() {
         // Cancel the presenter's scope when the UI is disposed
+        savedTestsView = null
         presenterJob.cancel(CancellationException("Presenter scope cancelled because UI was disposed."))
     }
 
@@ -296,6 +394,122 @@ class MainTestCasePresenterImpl(
             updateStatusBasedOnSelection()
         }
     }
+
+    override fun saveTestLogExecution(logData: TestExecutionLog) {
+        if (logData.isSaved) {
+            log.info("Log ${logData.id} is already saved.")
+            view.setStatus("Result already saved.", AllIcons.Actions.Commit) // Indicate already saved
+            return
+        }
+
+        log.info("Save requested for TestExecutionLog: ${logData.id}")
+        view.setStatus("Saving results...", AnimatedIcon.Default())
+
+        launch { // Launch on presenterScope (Main thread)
+            val saveResult: Result<String> = testCaseRepository.saveExecutionLog(logData)
+
+            if (!isActive) return@launch
+
+            saveResult.fold(
+                onSuccess = { filePath ->
+                    log.info("Save successful: $filePath")
+                    logData.isSaved = true
+                    // Notify user
+                    PluginNotifier.showInfo(
+                        project = project,
+                        title = "Test Case Saved",
+                        content = "Test is saved, you can run it anytime you want, even without AI :)", // Path might be too long/technical for user notification
+                        icon = AllIcons.Actions.MenuSaveall
+                    )
+                    view.updateBotResponseLog(logData.id, logData)
+                    view.setStatus("Test result saved.", AllIcons.Actions.MenuSaveall)
+                    loadTestLogs()
+                },
+                onFailure = { exception ->
+                    log.error("Save failed for TestExecutionLog: ${logData.id}", exception)
+                    // Notify user
+                    PluginNotifier.showError(
+                        project = project,
+                        title = "Save Failed",
+                        content = "Could not save test result: ${exception.localizedMessage}",
+                        icon = AllIcons.General.Error
+                    )
+                    view.setStatus("Save failed: ${exception.localizedMessage}", AllIcons.General.Error)
+                }
+            )
+
+            // Optionally restore default status bar after a delay
+            // delay(3000)
+            // if (isActive) updateStatusBasedOnSelection()
+        }
+    }
+
+    override fun refreshAvailableModels() {
+        launch {
+            val anthropicApiAvailable = withContext(Dispatchers.IO) {
+                AnthropicService.getInstance(project).getApiKeyMask().isNotBlank()
+            }
+            val geminiApiAvailable = withContext(Dispatchers.IO) {
+                GeminiService.getInstance(project).getApiKeyMask().isNotBlank()
+            }
+
+            val allModels = mutableListOf<AiModelData>().apply {
+                add(AiModelData(displayName = "Gemini 2.0 Flash", modelName = "gemini-2.0-flash", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
+                add(AiModelData(displayName = "Gemini 2.5 Flash", modelName = "gemini-2.5-flash-preview-04-17", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
+                add(AiModelData(displayName = "Gemini 2.5 Pro Exp", modelName = "gemini-2.5-pro-exp-03-25", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
+                add(AiModelData(displayName = "Gemini 1.5 Flash", modelName = "gemini-1.5-flash", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
+                add(AiModelData(displayName = "Gemini 1.5 Pro", modelName = "gemini-1.5-pro", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
+
+                add(AiModelData(displayName = "Claude 3.5 Haiku", modelName = Model.CLAUDE_3_5_HAIKU_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3.7 Sonnet", modelName = Model.CLAUDE_3_7_SONNET_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3.5 Sonnet", modelName = Model.CLAUDE_3_5_SONNET_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3 Haiku", modelName = Model.CLAUDE_3_HAIKU_20240307.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3 Opus", modelName = Model.CLAUDE_3_OPUS_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+            }
+            view.updateAiModels(allModels)
+        }
+    }
+
+    override fun loadTestLogs() {
+        log.info("Loading test results requested...")
+
+        launch { // Launch on presenterScope
+            val result: Result<List<TestExecutionLog>> = try {
+                withContext(Dispatchers.IO) {
+                    testCaseRepository.loadExecutionLogs()
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+
+            if (!isActive) {
+                log.info("Presenter scope no longer active after loading logs.")
+                return@launch
+            }
+
+            result.fold(
+                onSuccess = { loadedLogs ->
+                    log.info("Successfully loaded ${loadedLogs.size} logs from repository.")
+                    val savedTestsForView = loadedLogs.map { logData ->
+                        logData
+                    }.reversed() // Or your preferred order
+
+                    _savedTestExecutionLogs.clear()
+                    loadedLogs.forEach { _savedTestExecutionLogs[it.id] = it } // Update presenter's internal state
+
+                    log.info("Passing ${savedTestsForView.size} mapped logs to the view.")
+                },
+                onFailure = { exception ->
+                    log.error("Failed to load test results", exception)
+                }
+            )
+        }
+    }
+
+    override fun onAiModelSelected(selectedModel: AiModelData) {
+        this._selectedModel = selectedModel
+    }
+
 
     private fun updateStatusBasedOnSelection() {
         if (!isAdbHealthy) {

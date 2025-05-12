@@ -1,6 +1,7 @@
 package com.brahamchari.demoplugin.repository // Or your actual package
 
 import com.android.ddmlib.IDevice
+import com.brahamchari.demoplugin.models.AiModelData
 import com.brahamchari.demoplugin.models.TestExecutionLog
 import com.brahamchari.demoplugin.models.TestStatus
 import javax.swing.Icon
@@ -28,4 +29,7 @@ interface MainTestCaseView {
     fun getSelectedDevice(): IDevice?
 
     fun setStatus(text: String, icon: Icon?) // For the bottom status label
+
+    // ----- AI Models -----
+    fun updateAiModels(models: List<AiModelData>)
 }

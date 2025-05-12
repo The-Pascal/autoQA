@@ -14,6 +14,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.WebSocketMcpServerTransport
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
+import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.seconds
 
 class AndroidMCPServerImpl(
@@ -180,17 +181,33 @@ class AndroidMCPServerImpl(
                 required = listOf("xCoordinate", "yCoordinate")
             ),
         ) { request: CallToolRequest ->
-            val xCoordinate = request.arguments["xCoordinate"]?.jsonPrimitive?.longOrNull
-            val yCoordinate = request.arguments["yCoordinate"]?.jsonPrimitive?.longOrNull
+            val xJsonPrimitive = request.arguments["xCoordinate"]?.jsonPrimitive
+            val yJsonPrimitive = request.arguments["yCoordinate"]?.jsonPrimitive
 
-            if (xCoordinate == null || yCoordinate == null) {
-                return@addTool CallToolResult(
-                    content = listOf(TextContent("xCoordinate & yCoordinate should not be null"))
+            // Attempt to parse as Double first to handle both integers and decimals
+            val xDouble = xJsonPrimitive?.doubleOrNull
+            val yDouble = yJsonPrimitive?.doubleOrNull
+
+            if (xDouble == null || yDouble == null) {
+                // This will now only trigger if the values are not numbers at all (e.g., strings)
+                // or if the keys are missing and not caught by a schema validator earlier.
+                return@addTool CallToolResult( // or return@defineTapOnScreenTool if used directly in lambda
+                    content = listOf(TextContent("xCoordinate & yCoordinate must be valid numbers."))
                 )
             }
 
+            // Convert to Long by rounding to the nearest whole number
+            val xCoordinate = xDouble.roundToLong()
+            val yCoordinate = yDouble.roundToLong()
+
+            // The original null check for xCoordinate and yCoordinate (as Longs) is no longer strictly necessary
+            // here because if xDouble or yDouble were null, we would have returned above.
+            // The conversion to Long from a valid Double will always succeed.
+
+            println("Parsed coordinates - X: $xCoordinate, Y: $yCoordinate") // For debugging
+
             androidInteractionManager.tapOnScreen(xCoordinate, yCoordinate)
-            delay(500)
+            delay(500) // Consider making this delay configurable or part of a shared constant
             val screenContext = androidInteractionManager.getScreenContext()
 
             CallToolResult(content = listOf(TextContent(screenContext)))

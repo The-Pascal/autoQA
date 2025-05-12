@@ -21,6 +21,6 @@ data class QueryResult(
 
 data class ToolCallInfo(
     val toolName: String,
-    val inputArgumentsJson:  Map<String, JsonValue>,
+    val inputArgumentsJson:  Map<String, Any?>,
     val toolCallResult: String
 )

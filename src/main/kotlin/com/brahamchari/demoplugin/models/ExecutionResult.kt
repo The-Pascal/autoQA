@@ -47,7 +47,7 @@ data class ActionContext(
 
 data class ToolInfo(
     val toolName: String,
-    val toolArguments: Map<String, JsonValue>
+    val toolArguments: Map<String, Any?>
 )
 
 enum class StepOutcome { SUCCESS, FAILURE, CONTINUE, ERROR }
