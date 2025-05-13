@@ -24,8 +24,10 @@ class McpService(
     override val coroutineContext: CoroutineContext
         get() = serviceJob + Dispatchers.Default // Or IO, depending on primary work type
 
+    private val settingsState = SettingService.getInstance(project).state
+
     // --- Configuration ---
-    private val serverPort: Int = 5000 // Match server port
+    private val serverPort: Int = settingsState.mcpServerPort // Match server port
     private val serverHost: String = "127.0.0.1" // Connect specifically to loopback
     private val adbPath: String by lazy {
         ADBUtils.getAdbPath() ?: "adb"
