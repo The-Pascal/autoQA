@@ -25,7 +25,6 @@ import io.modelcontextprotocol.kotlin.sdk.client.WebSocketClientTransport
 import io.modelcontextprotocol.kotlin.sdk.shared.Transport
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
-import org.jetbrains.kotlin.idea.gradleTooling.get
 import java.util.*
 import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.optionals.getOrDefault

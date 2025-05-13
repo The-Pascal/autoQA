@@ -156,7 +156,7 @@ class TestCaseRepositoryImpl(
                 testExecutionLog.executionResult = ExecutionResult(
                     introduction = getTestIntro(textInput, deviceId, model),
 //                    introduction = getTestIntroDemo(textInput, deviceId),
-                    llmUsed = "Claude",
+                    llmUsed = model.modelName,
                     targetDeviceId = deviceId,
                     testSteps = mutableListOf()
                 )

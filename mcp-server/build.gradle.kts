@@ -4,16 +4,13 @@ plugins {
 }
 
 group = "com.brahamchari"
-version = "1.0-SNAPSHOT"
+version = "1.3-SNAPSHOT"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    val mcpVersion = "0.4.0"
-    val slf4jVersion = "2.0.9"
-    val ktorVersion = "3.1.1"
 
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
 

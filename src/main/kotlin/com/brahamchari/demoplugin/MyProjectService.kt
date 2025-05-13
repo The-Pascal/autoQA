@@ -4,6 +4,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.*
 
+@Deprecated("Do not use this now")
 @Service(Service.Level.PROJECT)
 class MyProjectService(
         private val project: Project,

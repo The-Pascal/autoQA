@@ -3,10 +3,14 @@ package com.brahamchari.demoplugin.utils
 import com.android.ddmlib.AndroidDebugBridge
 import com.android.ddmlib.IDevice
 import com.android.tools.idea.adb.AdbService
+import com.android.tools.idea.sdk.IdeSdks
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.SystemInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.android.sdk.AndroidSdkUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
@@ -53,13 +57,17 @@ object ADBUtils {
         devices
     }
 
+    private val configPath = PathManager.getConfigPath()
     val screenshotSaveFolderPath: String by lazy {
-        val configDir = File(System.getProperty("user.home"), ".config/Google/AndroidStudio/plugins/testAi/")
-        if (!configDir.exists()) configDir.mkdirs()
-        println("Screenshot save folder path - ${configDir.absolutePath}")
-        configDir.absolutePath
+        // Use a subdirectory specific to your plugin within the config area
+        val pluginConfigDir = File(configPath, "AutoQA/screenshots")
+        pluginConfigDir.mkdirs()
+        val path = pluginConfigDir.absolutePath
+        println("Screenshot save path - $path")
+        path
     }
 
+    // TODO: revisit this later
     @Throws(RuntimeException::class)
     fun runAdbCommand(command: String, deviceId: String? = null): String {
         val adbPath = getAdbPath() // Function to get ADB path dynamically
@@ -100,9 +108,11 @@ object ADBUtils {
         val savePath = "$screenshotSaveFolderPath/$name.png"
         println("Screenshot path - $savePath")
 
+        val adbPath = getAdbPath() ?: "adb"
+
         return try {
             // Run adb command and get raw bytes instead of converting to a string
-            val process = ProcessBuilder("adb", "-s", deviceId, "exec-out", "screencap", "-p")
+            val process = ProcessBuilder(adbPath, "-s", deviceId, "exec-out", "screencap", "-p")
                     .redirectErrorStream(true)
                     .start()
 
@@ -116,35 +126,67 @@ object ADBUtils {
                 }
             }
 
-            process.waitFor() // Ensure process completes
+            val exitCode = process.waitFor() // Wait for the adb command to complete
 
-            savePath
+            if (exitCode == 0) {
+                // Check if the file was actually created and has content
+                if (outputFile.exists() && outputFile.length() > 0) {
+                    println("Screenshot captured successfully: $savePath")
+                    savePath
+                } else {
+                    println("ADB command reported success (exit code 0), but screenshot file is missing or empty at: $savePath for device $deviceId.")
+                    outputFile.delete() // Clean up potentially empty file
+                    null
+                }
+            } else {
+                println("Error capturing screenshot: ADB command failed with exit code $exitCode for device $deviceId.")
+                // Since error stream was redirected, it would have been consumed by copyTo or available in process.inputStream before closing.
+                // For more detailed error, one might need to read the stream into a string before copyTo if it's small.
+                outputFile.delete() // Clean up potentially partial/corrupt file
+                null
+            }
         } catch (e: Exception) {
             println("Error capturing screenshot: ${e.message}")
             null
         }
     }
 
-    private fun parseAdbDeviceLine(line: String): Pair<String, String>? {
-        val parts = line.split("\\s+".toRegex()) // Split by whitespace
-        if (parts.isNotEmpty()) {
-            val deviceId = parts[0] // First part is device ID
-            val model = parts.find { it.startsWith("model:") }?.removePrefix("model:") ?: "Unknown"
-            return deviceId to model
-        }
-        return null
-    }
-
     fun getAdbPath(): String? {
-        val sdkPath = ApplicationManager.getApplication()
-                .getService(com.android.tools.idea.sdk.IdeSdks::class.java)
-                ?.androidSdkPath?.absolutePath
+        // 1. Check for system property override first (common in Android tooling)
+        val adbPathFromProperty = System.getProperty("android.adb.path")
+        if (!adbPathFromProperty.isNullOrBlank()) {
+            val adbFileFromProp = File(adbPathFromProperty)
+            if (adbFileFromProp.exists() && adbFileFromProp.isFile && adbFileFromProp.canExecute()) {
+                // Logger.getInstance("YourClass").info("Using ADB from system property: $adbPathFromProperty")
+                return adbFileFromProp.absolutePath
+            } else {
+                // Logger.getInstance("YourClass").warn("System property 'android.adb.path' is set to '$adbPathFromProperty' but it's not a valid ADB executable.")
+            }
+        }
 
-        return sdkPath?.let {
-            val adbFile = File(it, "platform-tools${File.separator}adb.exe")
-            if (adbFile.exists()) adbFile.absolutePath else null
-        } ?: run {
+        // 2. If no valid override, use the SDK configured in the IDE
+        val ideSdks = IdeSdks.getInstance() // Ensure this doesn't return null in your context
+        val sdkPathFile: File = ideSdks.androidSdkPath ?: run {
+            // Logger.getInstance("YourClass").warn("Android SDK path not configured in IDE.")
+            return null
+        }
+
+        val adbExecutableName = if (SystemInfo.isWindows) {
+            "adb.exe"
+        } else {
+            "adb" // For macOS and Linux
+        }
+
+        val platformToolsDir = File(sdkPathFile, "platform-tools")
+        val adbFile = File(platformToolsDir, adbExecutableName)
+
+        val path =  if (adbFile.exists() && adbFile.isFile && adbFile.canExecute()) {
+            adbFile.absolutePath
+        } else {
+            // Logger.getInstance("YourClass").warn("ADB not found in SDK path: ${adbFile.absolutePath}")
             null
         }
+        println("ADB path - $path")
+        return path
     }
 }

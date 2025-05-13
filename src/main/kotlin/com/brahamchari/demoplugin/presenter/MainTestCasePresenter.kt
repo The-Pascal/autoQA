@@ -460,11 +460,11 @@ class MainTestCasePresenterImpl(
                 add(AiModelData(displayName = "Gemini 1.5 Flash", modelName = "gemini-1.5-flash", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
                 add(AiModelData(displayName = "Gemini 1.5 Pro", modelName = "gemini-1.5-pro", company = AiModelCompany.GEMINI, enabled = geminiApiAvailable))
 
-                add(AiModelData(displayName = "Claude 3.5 Haiku", modelName = Model.CLAUDE_3_5_HAIKU_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
-                add(AiModelData(displayName = "Claude 3.7 Sonnet", modelName = Model.CLAUDE_3_7_SONNET_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
-                add(AiModelData(displayName = "Claude 3.5 Sonnet", modelName = Model.CLAUDE_3_5_SONNET_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
-                add(AiModelData(displayName = "Claude 3 Haiku", modelName = Model.CLAUDE_3_HAIKU_20240307.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
-                add(AiModelData(displayName = "Claude 3 Opus", modelName = Model.CLAUDE_3_OPUS_LATEST.asString(), company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3.5 Haiku", modelName = "claude-3-5-haiku-latest", company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3.7 Sonnet", modelName = "claude-3-7-sonnet-latest", company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3.5 Sonnet", modelName = "claude-3-5-sonnet-latest", company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3 Haiku", modelName = "claude-3-haiku-20240307", company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
+                add(AiModelData(displayName = "Claude 3 Opus", modelName = "claude-3-haiku-20240307", company = AiModelCompany.ANTHROPIC, enabled = anthropicApiAvailable))
             }
             view.updateAiModels(allModels)
         }

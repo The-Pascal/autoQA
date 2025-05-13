@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.brahamchari"
-version = "1.0-SNAPSHOT"
+version = "1.3-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -16,16 +16,14 @@ repositories {
 // Configure Gradle IntelliJ Plugin
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
-    version.set("2023.1.1")
-    type.set("IC") // Target IDE Platform
-
-    plugins.set(listOf("Kotlin", "org.jetbrains.android"))
+    version.set("AI-243.22562.218.2431.13114758")
+//    type.set("AI") // Target IDE Platform
+//
+    plugins.set(listOf("org.jetbrains.android"))
 }
 
 dependencies {
     val mcpVersion = "0.4.0"
-    val slf4jVersion = "2.0.9"
-    val anthropicVersion = "0.8.0"
 
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
 
@@ -51,9 +49,9 @@ dependencies {
 }
 
 tasks {
-    runIde {
-        ideDir.set(file("C:/Program Files/Android/Android Studio"))
-    }
+//    runIde {
+//        ideDir.set(file("C:/Program Files/Android/Android Studio"))
+//    }
     // Set the JVM compatibility versions
     withType<JavaCompile> {
         sourceCompatibility = "17"
@@ -64,7 +62,7 @@ tasks {
     }
 
     patchPluginXml {
-        sinceBuild.set("222") // Minimum supported build (Android Studio Flamingo)
+        sinceBuild.set("243")
         untilBuild.set("999.*")   // Allow all future versions
     }
 
@@ -76,5 +74,11 @@ tasks {
 
     publishPlugin {
         token.set(System.getenv("PUBLISH_TOKEN"))
+    }
+
+    named("prepareSandbox", org.jetbrains.intellij.tasks.PrepareSandboxTask::class.java) {
+        // This line takes the JAR file produced by the 'jar' task of your ':mcp-server' module
+        // and ensures it's copied into the 'lib' directory of your plugin's distribution.
+        from(project(":mcp-server").tasks.named("jar")) { into("lib") }
     }
 }

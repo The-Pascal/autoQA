@@ -162,11 +162,7 @@ class GeminiService(
         }
 
         return if (!storedApiKey.isNullOrBlank()) {
-            if (storedApiKey.length > 8) {
-                "${storedApiKey.take(4)}...${storedApiKey.takeLast(4)}"
-            } else {
-                "*".repeat(storedApiKey.length.coerceAtLeast(8))
-            }
+            "*".repeat(storedApiKey.length)
         } else {
             ""
         }
